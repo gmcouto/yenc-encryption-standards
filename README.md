@@ -1,7 +1,7 @@
 # yEnc Encryption Standards
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: Experimental](https://img.shields.io/badge/Status-Experimental-red.svg)]()
+[![Status: Frozen Wire Contract (v1.0)](https://img.shields.io/badge/Status-v1.0%20Frozen-blue.svg)]()
 
 This repository contains specifications for **two complementary encryption standards** designed specifically for yEnc-encoded binary blocks used in Usenet transfers. Both standards can be used individually or combined depending on security and obfuscation requirements.
 
@@ -13,8 +13,8 @@ This repository contains specifications for **two complementary encryption stand
 **Target**: yEnc header and footer lines (lines beginning with "=y")  
 **Method**: FF1 Format-Preserving Encryption
 
-- **Format-preserving**: Encrypted control lines maintain exact length and character compatibility
-- **Selective encryption**: Only metadata is encrypted, binary data remains untouched
+- **Format-preserving**: Encrypted control lines maintain exact length (lines 2..N) and character compatibility; the first control line (lineIndex=1) expands by 16 bytes due to prepended random salt from the 253-byte Alphabet
+- **Selective encryption**: Only metadata is encrypted, binary data lines remain completely untouched
 - **Total obfuscation**: Hides file names, sizes, part information, and yEnc structure
 - **Optional**: Can be omitted when obfuscation is not required
 
@@ -25,8 +25,9 @@ This repository contains specifications for **two complementary encryption stand
 **Method**: XChaCha20-Poly1305 Authenticated Encryption
 
 - **Content security**: Encrypts actual file data with strong authentication
-- **Integrity protection**: Detects tampering through cryptographic authentication
+- **Integrity protection**: Detects tampering through cryptographic authentication; failed authentication results in complete decryption failure with zero partial data output
 - **Transparent**: Standard yEnc parsers process encrypted blocks normally
+- **Canonical format**: Uses single-line `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>` control line
 - **Optional**: Can be omitted if cryptographic protection of file content is not required
 
 ## Usage Scenarios
@@ -131,9 +132,9 @@ The **Body Encryption Standard** is designed to replace traditional preprocessin
 Target: yEnc control lines (lines beginning with "=y")
 Alphabet: 253 bytes (0x01-0xFF excluding CR/LF)
 Cipher: FF1 with AES-256
-Key Derivation: Argon2id(password, salt)
-Tweak: HMAC-SHA256(master, "yenc-control tweak" || segmentIndex || lineIndex)
-Salt: SHA-256("yenc-control salt" || password)[0:16] (deterministic)
+Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
+Tweak: HMAC-SHA256(master, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
+Salt: 16 random bytes sampled from 253-byte Alphabet, prepended to line 1 (lineIndex=1 expands by 16B, lines 2..N preserve length)
 ```
 
 ### Body Encryption Standard
@@ -146,9 +147,10 @@ Salt: SHA-256("yenc-control salt" || password)[0:16] (deterministic)
 Target: Binary file data (before yEnc encoding)
 Cipher: XChaCha20 (256-bit key, 192-bit nonce)
 Authentication: Poly1305 (128-bit tag)
-Key Derivation: Argon2id(password, salt, 256-bit output)
-Nonce: HMAC-SHA256(key, "yenc-body nonce" || segmentIndex)[0:24]
-Salt: SHA-256("yenc-body salt" || password)[0:16] (deterministic)
+Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
+Nonce: HMAC-SHA256(key, "yenc-body nonce" || uint32_be(segmentIndex))[0:24]
+Salt: 16 cryptographically secure random bytes (CSPRNG), carried in =yencryption control line
+Format: =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>
 ```
 
 ## Security Properties
@@ -198,7 +200,7 @@ Salt: SHA-256("yenc-body salt" || password)[0:16] (deterministic)
 
 ## Status
 
-Both specifications are currently in **experimental** status. The standards are being developed collaboratively and may undergo changes based on community feedback and security review.
+Both specifications are published as **frozen v1.0 wire contracts (v1.0 Frozen)**, establishing a permanent, immutable interoperability baseline across Pesto, Penne, SABnzbd, and NZBGet. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) are finalized and frozen for implementation across all client engines.
 
 ## Contributing
 
