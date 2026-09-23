@@ -36,14 +36,18 @@ yEnc header and footer lines (lines beginning with "=y") while
 maintaining:
   - yEnc-compatible printable characters
   - deterministic reconstruction of the original yEnc structure
-  - fixed ciphertext length equal to plaintext length per line
+  - exact length preservation for lines 2..N, with the first encrypted
+    control line (lineIndex=1) expanding by exactly 16 bytes due to
+    prepended random salt
+  - data lines remain completely untouched in length and byte content
   - format-preserving output suitable for Usenet transmission
   - no additional yEnc encoding step required after encryption
 
 It is intended for use in single or multipart binary uploads or
 segment encryption, where yEnc control lines are encrypted while
 preserving the overall yEnc structure and leaving data lines
-unmodified.
+unmodified. The overall yEnc block length increases by exactly 16 bytes
+due to the salt prepended to the first line.
 
 ----------------------------------------------------------------------
 2. Definitions
@@ -68,6 +72,21 @@ unmodified.
     The 253-symbol byte domain: all byte values 0x01–0xFF except
     0x0A (LF) and 0x0D (CR).
 
+    Canonical Numeral Bijection Table (Radix 253):
+    To ensure cross-language interoperability, each byte b in Alphabet
+    maps to an integer numeral I in [0, 252] strictly by ascending
+    byte value:
+      - For b in [0x01, 0x09] (9 values):   I = b - 1  (I in [0, 8])
+      - For b = 0x0B (VT):                  I = 9
+      - For b = 0x0C (FF):                  I = 10
+      - For b in [0x0E, 0xFF] (242 values): I = b - 3  (I in [11, 252])
+
+    Reverse Mapping (numeral I in [0, 252] to byte b in Alphabet):
+      - For I <= 8:                         b = I + 1
+      - For I = 9:                          b = 0x0B
+      - For I = 10:                         b = 0x0C
+      - For I >= 11:                        b = I + 3
+
   segmentIndex:
     A 32-bit unsigned integer >= 1 providing a continuous, globally
     unique index across all segments in the upload sequence,
@@ -77,11 +96,16 @@ unmodified.
     entire upload session.
 
   lineIndex:
-    A 32-bit unsigned integer >= 1 representing the line number of
-    all lines within a yEnc block. The lineIndex of the last line
-    equals the total number of lines in the yEnc block. Used to
-    generate unique tweaks for yEnc control lines during
-    encryption/decryption.
+    A 32-bit unsigned integer (1 <= lineIndex <= N) representing the
+    1-based physical line number of every line (header, data, or
+    footer) within the yEnc block, where N is the total physical line
+    count of the block.
+    Every line in the block—whether an encrypted control line or an
+    unmodified data line—increments lineIndex sequentially by 1.
+    The first line of the block has lineIndex = 1; the final footer
+    line (=yend) has lineIndex = N.
+    Used to generate unique tweaks for FF1 encryption/decryption of
+    yEnc control lines.
 
 ----------------------------------------------------------------------
 3. Processing Procedure
@@ -89,7 +113,7 @@ unmodified.
 Input: Complete yEnc block with any line endings (LF or CRLF).
 
 yEnc Structure Pattern:
-- Header line(s): "=ybegin ...", "=ypart ..." (if multipart)
+- Header line(s): "=ybegin ...", "=ypart ..." (if multipart), "=yencryption ..." (if body encrypted)
 - Data lines: encoded binary data (multiple lines)
 - Footer line: "=yend ..."
 
@@ -98,13 +122,18 @@ Encryption Steps:
 1. Split the yEnc block into individual lines, preserving line
    ending information for reconstruction.
 2. Initialize lineIndex = 1.
-3. Process lines sequentially:
+3. Process lines sequentially, increment lineIndex sequentially on every physical line:
    a. For lines beginning with "=y":
       - Extract line content (excluding terminators)
-      - Encrypt using lineIndex-specific tweak
-      - Increment lineIndex
-   b. For lines not beginning with "=y": leave unchanged (data
-      lines)
+      - Encrypt line content using FF1 with lineIndex-specific tweak
+      - For lineIndex=1 (the first line): prepend the 16-byte salt to
+        the ciphertext
+      - Replace original line content with encrypted content (including
+        prepended salt for line 1)
+   b. For lines not beginning with "=y":
+      - Leave data line content untouched
+   c. Increment lineIndex by 1 for the next physical line (whether control
+      or data line)
 4. Preserve all line terminators and data lines exactly as received.
 
 This approach encrypts yEnc control information (headers/footers)
@@ -149,55 +178,56 @@ additional encoding step before transmission.
 ----------------------------------------------------------------------
 5. Decryption Algorithm
 
-Input: yEnc block with encrypted control lines.
+Input: yEnc block with encrypted control lines (total physical lines N).
 
 Steps:
 
 1. Split the yEnc block into individual lines, preserving line
    endings.
-2. Initialize lineIndex = 1.
-3. Process the first line to extract salt:
-   a. Extract the first line content (excluding line terminators)
-   b. Extract salt from the first 16 bytes of the encrypted content
-   c. Remove salt from the encrypted content (remaining content for
-      decryption)
-   d. Derive masterKey, encKey, and tweak using extracted salt and
-      lineIndex=1
+2. Process line 1 (lineIndex=1) to extract salt:
+   a. Extract line 1 content (excluding line terminators)
+   b. Extract 16-byte salt from the first 16 bytes of line 1
+   c. Remove salt prefix from line 1 content (remaining bytes are
+      the FF1 ciphertext)
+   d. Derive masterKey, encKey, and tweak using extracted salt,
+      segmentIndex, and lineIndex=1
    e. Apply FF1 decryption over the 253-character alphabet
-   f. Verify the decrypted content starts with "=y"
-   g. Replace the encrypted line with decrypted content
-4. Process remaining lines from the beginning:
-   a. For each subsequent line:
-      - Extract the line content (excluding line terminators)
-      - Derive masterKey, encKey, and tweak using extracted salt
-        and current lineIndex
+   f. Verify decrypted content starts with "=ybegin"
+   g. Replace line 1 encrypted content with decrypted content
+3. Process subsequent header lines (lineIndex = 2, 3, ...):
+   a. For each physical line before data lines (lineIndex=2, 3, ...):
+      - Extract line content (excluding line terminators)
+      - Derive tweak using extracted salt, segmentIndex, and current lineIndex
       - Apply FF1 decryption over the 253-character alphabet
-      - If the decrypted content starts with "=y":
-        * Replace the encrypted line with decrypted content
-        * Increment lineIndex
-        * Continue to next line
-      - If the decrypted content does not start with "=y":
-        * This is the first data line; stop processing
-        * Restore the original encrypted content for this line
-5. Process the last line (footer):
-   a. Extract the last line content (excluding line terminators)
-   b. Derive masterKey, encKey, and tweak using extracted salt and
-      current lineIndex
+      - If decrypted content starts with "=y":
+        * Replace line content with decrypted content
+        * Continue to next line (increment lineIndex by 1)
+      - If decrypted content does not start with "=y":
+        * This line is the first data line (lineIndex = D)
+        * Restore original line content untouched
+        * Stop header decryption loop
+4. Pass through data lines (lineIndex = D through N - 1):
+   - Leave all data lines untouched, incrementing lineIndex for each physical line
+5. Process the final line (footer, lineIndex = N):
+   a. Extract the last physical line content (excluding line terminators)
+   b. Derive tweak using extracted salt, segmentIndex, and lineIndex = N
    c. Apply FF1 decryption over the 253-character alphabet
-   d. Replace the encrypted line with decrypted content (should
-      start with "=yend")
+   d. Verify decrypted content starts with "=yend"
+   e. Replace line N encrypted content with decrypted content
 6. Reconstruct the complete yEnc block with original line endings.
 
 ----------------------------------------------------------------------
 6. Length Properties
 
-- Each encrypted yEnc control line has identical length to its
-  original.
-- Data lines remain completely unchanged in length and content.
-- Overall yEnc block length is preserved exactly.
-- No additional salt storage is required as salt is
-  deterministically derived from password.
-- Line endings and formatting are preserved throughout the process.
+- The first encrypted yEnc control line (lineIndex=1) expands by
+  exactly 16 bytes due to the prepended random salt.
+- All subsequent encrypted yEnc control lines (lineIndex > 1) preserve
+  exact plaintext length (identical length to original).
+- Data lines remain completely unchanged in length, byte content,
+  and line terminators.
+- Overall yEnc block length increases by exactly 16 bytes (the salt).
+- Line endings (CRLF or LF) and data line formatting are preserved
+  throughout the process.
 
 ----------------------------------------------------------------------
 7. Security Considerations
@@ -246,8 +276,18 @@ when yEnc control lines are encrypted.
 
 - Any FF1 implementation conforming to NIST SP 800-38G may be used
   if it supports custom alphabets.
-- Implementations must ensure 1:1 reversible mapping between byte
-  values and alphabet symbols.
+- Implementations MUST use the canonical 253-byte Alphabet numeral
+  bijection specified in Section 2:
+    Mapping byte octets b to numerals I in [0, 252]:
+      - For b in [0x01, 0x09]:   I = b - 1  (numerals 0..8)
+      - For b = 0x0B:            I = 9
+      - For b = 0x0C:            I = 10
+      - For b in [0x0E, 0xFF]:   I = b - 3  (numerals 11..252)
+    Reverse mapping numerals I in [0, 252] to byte octets b:
+      - For I <= 8:              b = I + 1
+      - For I = 9:               b = 0x0B
+      - For I = 10:              b = 0x0C
+      - For I >= 11:             b = I + 3
 
 ----------------------------------------------------------------------
 10. Example
@@ -260,30 +300,43 @@ Input plaintext:
   =yend size=18\r\n
 
 Encryption Processing:
-- Line 1: "=ybegin line=9 size=18 name=file.bin" → encrypted
-  (lineIndex=1)
-- Line 2: "abcDEF123" → unchanged (data line)
-- Line 3: "ghiJKL456" → unchanged (data line)
-- Line 4: "=yend size=18" → encrypted (lineIndex=4)
+- Total physical lines N = 4.
+- Line 1 (lineIndex=1): "=ybegin line=9 size=18 name=file.bin" (33 bytes)
+  -> FF1 encrypt with tweak(segmentIndex, 1) (33 bytes)
+  -> Prepend 16-byte random salt from Alphabet
+  -> Encrypted line 1 expands by 16 bytes: 16 bytes salt + 33 bytes ciphertext = 49 bytes.
+- Line 2 (lineIndex=2): "abcDEF123" -> unchanged (data line).
+- Line 3 (lineIndex=3): "ghiJKL456" -> unchanged (data line).
+- Line 4 (lineIndex=4): "=yend size=18" (13 bytes)
+  -> FF1 encrypt with tweak(segmentIndex, 4) (13 bytes)
+  -> Preserves exact length: 13 bytes ciphertext.
 
 Encrypted output:
 
-  K7mX9pL2qR8vN4wZ6tY1uI5eA3cS0fH7j\r\n
+  <16-byte salt>K7mX9pL2qR8vN4wZ6tY1uI5eA3cS0fH7j\r\n
   abcDEF123\r\n
   ghiJKL456\r\n
-  T8nB2hM6xV9qL4pW1rE7uI0oA5cF3gH\r\n
+  T8nB2hM6xV9qL\r\n
 
 Decryption Processing:
-- Try decrypt line 1 with lineIndex=1: results in "=ybegin..." →
-  valid, keep
-- Try decrypt line 2 with lineIndex=2: results in "jX8mR2..." →
-  doesn't start with "=y", skip
-- Skip all middle data lines
-- Decrypt last line with lineIndex=4: results in "=yend size=18" →
-  valid footer
+- Line 1 (lineIndex=1):
+  * Extract first 16 bytes as salt.
+  * Decrypt remaining 33 bytes with lineIndex=1 and extracted salt.
+  * Result: "=ybegin line=9 size=18 name=file.bin" -> valid header, keep.
+- Line 2 (lineIndex=2):
+  * Attempt decrypt with lineIndex=2.
+  * Result does not begin with "=y", indicating first data line.
+  * Retain original "abcDEF123" untouched.
+- Line 3 (lineIndex=3):
+  * Data line -> retain original "ghiJKL456" untouched.
+- Line 4 (lineIndex=4=N):
+  * Decrypt last physical line (lineIndex=4) with extracted salt.
+  * Result: "=yend size=18" -> valid footer.
 
 After decryption, the reconstructed text matches the original yEnc
 block exactly, with control lines restored and data lines unchanged.
+Overall block length increased on wire by exactly 16 bytes due to salt
+prepended to line 1.
 
 ----------------------------------------------------------------------
 11. Summary
