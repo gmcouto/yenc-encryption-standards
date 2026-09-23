@@ -1,19 +1,43 @@
-RFC-DRAFT: yEnc Control Lines Encryption Standard
-Version: 0.3
-Date: 2025-10-26
+SPECIFICATION: yEnc Control Lines Encryption Standard
+Version: 1.0
+Date: 2026-09-23
 Author: Independent Specification
 
-Status: Experimental
-Category: Informational
+Status: Frozen Wire Contract (v1.0)
+Category: Standards Track
 
 Abstract:
 This document defines a reversible, format-preserving encryption
 scheme for yEnc control lines in yEnc-encoded binary blocks used in
-Usenet transfers. The scheme maintains exact length and preserves the
-printable yEnc character range required for Usenet transmission.
+Usenet transfers. The scheme maintains exact length for lines 2..N,
+prepends random salt on line 1, and preserves the printable yEnc
+character range required for Usenet transmission.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.0 (2026-09-23):
+- Resolved salt carriage contradiction: clarified that the first
+  encrypted control line (lineIndex=1) expands by exactly 16 bytes due
+  to the prepended random salt, while subsequent control lines (lineIndex > 1)
+  preserve exact plaintext length, and data lines remain untouched (SPEC-01).
+- Removed stale v0.2 claims regarding identical length on all lines and
+  deterministic salt derivation (SPEC-01).
+- Resolved lineIndex counting ambiguity: defined lineIndex strictly as the
+  1-based physical line number of every line (header, data, footer) within
+  the yEnc block (1 <= lineIndex <= N) (SPEC-02).
+- Specified canonical 253-byte Alphabet numeral bijection table (mapping
+  byte octets to integer numerals 0..252) and reverse mapping (SPEC-02).
+- Updated line processing loops to increment lineIndex sequentially on
+  every physical line (SPEC-02).
+- Specified 4-byte big-endian (uint32_be, network byte order) integer
+  serialization for segmentIndex and lineIndex in HMAC-SHA256 tweak
+  derivation inputs (exact 26-byte message layout) (SPEC-03).
+- Confirmed encKey derivation uses 16 bytes ASCII prefix "yenc-control key"
+  (SPEC-03).
+- Updated worked example with salt expansion, exact length preservation,
+  and 1-based physical line numbering (SPEC-01, SPEC-02).
+- Froze specification as v1.0 wire contract (SPEC-04).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -148,23 +172,33 @@ Encryption)
 Parameters:
   - Alphabet: 253 printable characters (see Section 2)
   - Block cipher: AES-256
-  - Salt: Random 16 byte value from alphabet  (use cryptographically
+  - Salt: Random 16 byte value from alphabet (use cryptographically
     secure RNG)
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output)
-  - Tweak: HMAC-SHA256(master, "yenc-control tweak" ||
-    segmentIndex || lineIndex)[0:8]
+  - Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" ||
+    uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
 
 Procedure (applied to each yEnc control line individually):
 
-  a. Generate salt = Random 16 byte value from alphabet (once pe
+  a. Generate salt = Random 16 byte value from alphabet (once per
      upload session, use cryptographically secure RNG)
   b. Derive masterKey = Argon2id(password, salt, time=1, memory=64MB,
      threads=4, 256-bit output)
   c. Derive encKey = HMAC-SHA256(masterKey, "yenc-control key")
+     The message input to HMAC-SHA256 is exactly 16 bytes: the ASCII
+     prefix "yenc-control key". The encKey is the full 32-byte digest,
+     used as the AES-256 key for FF1.
   d. Derive tweak = HMAC-SHA256(masterKey, "yenc-control tweak" ||
-     segmentIndex || lineIndex)[0:8] where lineIndex is the
-     sequential index of the current line within the segment.
+     uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
+     The message input to HMAC-SHA256 is exactly 26 bytes:
+       - Bytes 0..17 (18 bytes): ASCII prefix "yenc-control tweak"
+       - Bytes 18..21 (4 bytes): uint32_be(segmentIndex) (4-byte
+         unsigned integer in big-endian network byte order)
+       - Bytes 22..25 (4 bytes): uint32_be(lineIndex) (4-byte
+         unsigned integer in big-endian network byte order)
+     The tweak is the first 8 bytes of the resulting HMAC-SHA256
+     digest, passed as the FF1 tweak input.
   e. Encrypt the line content using FF1 over the 253-character
      alphabet.
   f. For the first line (lineIndex=1): prepend the 16-byte salt to
