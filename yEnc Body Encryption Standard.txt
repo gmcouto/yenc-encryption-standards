@@ -1,10 +1,10 @@
-RFC-DRAFT: yEnc Body Encryption Standard
-Version: 0.3
-Date: 2025-10-26
+SPECIFICATION: yEnc Body Encryption Standard
+Version: 1.0
+Date: 2026-09-23
 Author: Independent Specification
 
-Status: Experimental
-Category: Informational
+Status: Frozen Wire Contract (v1.0)
+Category: Standards Track
 
 Abstract:
 This document defines a reversible encryption scheme for binary data
@@ -15,6 +15,16 @@ of the transmitted data.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.0 (2026-09-23):
+- Specified 4-byte big-endian (uint32_be, network byte order) integer
+  serialization for segmentIndex in HMAC-SHA256 nonce derivation,
+  defining the exact 19-byte message layout (SPEC-03).
+- Reinforced canonical single-line format for =yencryption control line.
+- Reaffirmed zero-output guarantee on authentication failure: complete
+  decryption failure with no partial data output.
+- Confirmed NZB file subject tag numbering and password metadata format.
+- Froze specification as v1.0 wire contract (SPEC-04).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -110,7 +120,9 @@ Parameters:
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output)
   - Nonce: HMAC-SHA256(key, "yenc-body nonce" ||
-    segmentIndex)[0:24]
+    uint32_be(segmentIndex))[0:24]
+    where segmentIndex is serialized as a 4-byte unsigned integer
+    in big-endian order (uint32_be, network byte order).
 
 Procedure:
 
@@ -119,23 +131,34 @@ Procedure:
   b. Derive key = Argon2id(password, salt, time=1, memory=64MB,
      threads=4, 256-bit output)
   c. Derive nonce = HMAC-SHA256(key, "yenc-body nonce" ||
-     segmentIndex)[0:24]
+     uint32_be(segmentIndex))[0:24]
+     The message input to HMAC-SHA256 is an exact 19-byte sequence:
+     - Bytes 0..14 (15 bytes): ASCII prefix "yenc-body nonce"
+       (0x79 0x65 0x6e 0x63 0x2d 0x62 0x6f 0x64 0x79 0x20 0x6e
+        0x6f 0x6e 0x63 0x65)
+     - Bytes 15..18 (4 bytes): uint32_be(segmentIndex), serialized
+       as a fixed 4-byte unsigned integer in big-endian order
+       (network byte order: (segmentIndex >> 24) & 0xFF,
+        (segmentIndex >> 16) & 0xFF, (segmentIndex >> 8) & 0xFF,
+        segmentIndex & 0xFF).
+     The first 24 bytes (digest[0..24]) of the resulting 32-byte
+     HMAC-SHA256 digest are extracted as the 192-bit nonce for
+     XChaCha20.
   d. Encrypt binary payload using XChaCha20-Poly1305 with derived
      key and nonce, producing ciphertext and 128-bit authentication
      tag.
   e. Apply yEnc encoding to the ciphertext only (excluding the tag).
-  f. Insert "=yencryption cipher=XChaCha20-Poly1305
-     salt=<hex_salt> tag=<hex_tag>" control line after "=ybegin"
-     line, where <hex_salt> is the 16-byte salt and <hex_tag> is
-     the 128-bit authentication tag.
+  f. Insert "=yencryption cipher=XChaCha20-Poly1305 salt=<hex_salt> tag=<hex_tag>"
+     control line after "=ybegin" line, where <hex_salt> is the
+     16-byte salt and <hex_tag> is the 128-bit authentication tag.
 
 The yEncryption control line format:
-  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars>
-  tag=<32_hex_chars>
+  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>
 
-Where the first <32_hex_chars> is the 16-byte salt and the second
-<32_hex_chars> is the 128-bit authentication tag, both in lowercase
-hexadecimal format.
+Where the control line is a canonical single line (no line wrapping),
+the first <32_hex_chars> is the 16-byte salt, and the second
+<32_hex_chars> is the 128-bit authentication tag, both formatted in
+lowercase hexadecimal characters.
 
 ----------------------------------------------------------------------
 5. Decryption Algorithm
@@ -149,13 +172,15 @@ Steps:
 3. Verify cipher is "XChaCha20-Poly1305".
 4. Apply yEnc decoding to data lines to retrieve encrypted payload.
 5. Derive key and nonce using the extracted salt and same procedure as
-   encryption.
+   encryption (including big-endian uint32_be serialization of segmentIndex).
 6. Decrypt using XChaCha20-Poly1305 with derived parameters.
 7. Verify authentication tag matches the tag from the control line.
 8. Output decrypted binary data on successful authentication.
 
 Authentication failure MUST result in complete decryption failure
-with no partial data output.
+with no partial data output. Decoders and download clients MUST NOT
+release, write to disk, or buffer unauthenticated plaintext or
+ciphertext to subsequent pipeline stages when authentication fails.
 
 ----------------------------------------------------------------------
 6. Length Properties
@@ -183,7 +208,9 @@ with no partial data output.
   requirements.
 - Authentication tag prevents tampering and provides integrity
   verification.
-- Failed authentication MUST abort decryption completely.
+- Failed authentication MUST abort decryption completely with no
+  partial or unauthenticated data output released to disk or
+  subsequent processing stages.
 - The scheme provides both confidentiality and integrity, unlike
   format-preserving approaches.
 
@@ -240,7 +267,8 @@ Derived parameters:
 - salt: Random 16-byte value = 1a2b3c4d5e6f7890abcdef1234567890
 - key: Argon2id("test123", salt, time=1, memory=64MB, threads=4,
   256-bit)  
-- nonce: HMAC-SHA256(key, "yenc-body nonce" || 1)[0:24]
+- nonce: HMAC-SHA256(key, "yenc-body nonce" || uint32_be(1))[0:24]
+  (where uint32_be(1) = 0x00 0x00 0x00 0x01)
 
 Encryption:
 - XChaCha20-Poly1305 encryption produces 18-byte ciphertext and
@@ -250,9 +278,7 @@ Encryption:
 yEnc encoded output:
 
   =ybegin line=128 size=18 name=file.bin
-  =yencryption cipher=XChaCha20-Poly1305
-    salt=1a2b3c4d5e6f7890abcdef1234567890
-    tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
+  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
   <yEnc-encoded ciphertext data lines>
   =yend size=18
 
@@ -260,6 +286,7 @@ Decryption Processing:
 1. Parse "=yencryption" line to extract salt and authentication tag
 2. yEnc decode data lines to get 18-byte ciphertext
 3. Derive key/nonce using extracted salt and segmentIndex=1
+   (using uint32_be(1))
 4. Decrypt ciphertext using XChaCha20-Poly1305 with tag from
    control line
 5. Verify authentication during decryption process
