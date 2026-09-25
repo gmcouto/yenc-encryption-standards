@@ -1,6 +1,6 @@
 SPECIFICATION: yEnc Body Encryption Standard
 Version: 1.0
-Date: 2026-09-23
+Date: 2026-09-25
 Author: Independent Specification
 
 Status: Frozen Wire Contract (v1.0)
@@ -15,6 +15,21 @@ of the transmitted data.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.0 (2026-09-25):
+- Replaced subject-derived segment numbering with explicit NZB-anchored
+  segmentIndex attribute on <segment> elements.
+- Defined exact attribute syntax: case-sensitive segmentIndex, range
+  1..=4294967295, canonical shortest ASCII decimal representation with
+  no leading zeroes, signs, whitespace, or non-digits.
+- Removed all cryptographic dependency on NZB <file subject>, NNTP
+  headers, XML file order, and segment order.
+- Specified producer requirements (continuous from 1, unique per
+  session, preserved across retries, reposts, resume) and consumer
+  requirements (strict parsing, reject zero/duplicates/malformed,
+  accept non-contiguous subsets without renumbering).
+- Clarified that decryption requires only the validated NZB segment
+  record, password, and fetched article body.
 
 Version 1.0 (2026-09-23):
 - Specified 4-byte big-endian (uint32_be, network byte order) integer
@@ -76,35 +91,39 @@ compatibility and providing cryptographic authentication.
     the authentication tag.
 
   segmentIndex:
-    A 32-bit unsigned integer >= 1 providing a continuous, globally
-    unique index across all segments in the upload sequence,
-    regardless of file boundaries. For example, if file 1 has
-    segments 1, 2, and 3, then segment 1 of file 2 has segmentIndex
-    4. This ensures unique nonce values for every segment across the
-    entire upload session.
+    An unsigned 32-bit integer in the range 1..=4294967295 carried
+    explicitly as the segmentIndex attribute on each NZB <segment>
+    element. It provides unique nonce values for every segment across
+    the upload session without file-boundary arithmetic.
 
 ----------------------------------------------------------------------
 3. Processing Procedure
 
-Input: Binary file data and password for encryption.
+Encryption Input: Binary file data, password, and segmentIndex assigned
+to the corresponding NZB <segment> record.
 
 Encryption Steps:
 
 1. Read the binary file data (binary payload).
-2. Derive encryption key and nonce using segmentIndex (see Section 4).
+2. Derive encryption key and nonce using segmentIndex assigned to this
+   segment (see Section 4).
 3. Encrypt the binary payload using XChaCha20-Poly1305.
 4. Extract the authentication tag from the encrypted output.
 5. Apply standard yEnc encoding to the ciphertext only (without tag).
 6. Insert "=yencryption" control line after the "=ybegin" line
    containing cipher type and authentication tag.
-6. Construct complete yEnc block with encrypted data.
+7. Construct complete yEnc block with encrypted data.
+
+Decryption Input: Validated NZB segment record, password from the NZB,
+and fetched article body.
 
 Decryption Steps:
 
 1. Parse yEnc block to extract encryption parameters from
    "=yencryption" line.
 2. Apply standard yEnc decoding to retrieve encrypted payload.
-3. Derive decryption key and nonce using segmentIndex.
+3. Derive decryption key and nonce using segmentIndex obtained from the
+   corresponding NZB segment element.
 4. Decrypt and authenticate using XChaCha20-Poly1305.
 5. Verify authentication tag and output original binary data.
 
@@ -121,7 +140,8 @@ Parameters:
     threads=4, 256-bit output)
   - Nonce: HMAC-SHA256(key, "yenc-body nonce" ||
     uint32_be(segmentIndex))[0:24]
-    where segmentIndex is serialized as a 4-byte unsigned integer
+    where segmentIndex is the unsigned 32-bit integer serialized in the
+    NZB segmentIndex attribute and encoded as a 4-byte unsigned integer
     in big-endian order (uint32_be, network byte order).
 
 Procedure:
@@ -137,7 +157,8 @@ Procedure:
        (0x79 0x65 0x6e 0x63 0x2d 0x62 0x6f 0x64 0x79 0x20 0x6e
         0x6f 0x6e 0x63 0x65)
      - Bytes 15..18 (4 bytes): uint32_be(segmentIndex), serialized
-       as a fixed 4-byte unsigned integer in big-endian order
+       as a fixed 4-byte unsigned integer in big-endian order and
+       matching the corresponding NZB segmentIndex attribute
        (network byte order: (segmentIndex >> 24) & 0xFF,
         (segmentIndex >> 16) & 0xFF, (segmentIndex >> 8) & 0xFF,
         segmentIndex & 0xFF).
@@ -163,7 +184,9 @@ lowercase hexadecimal characters.
 ----------------------------------------------------------------------
 5. Decryption Algorithm
 
-Input: yEnc block with encrypted binary data.
+Input: Fetched yEnc block with encrypted binary data, password from the
+NZB, and segmentIndex obtained from the corresponding NZB segment
+element.
 
 Steps:
 
@@ -171,8 +194,9 @@ Steps:
 2. Extract cipher type, salt, and authentication tag from the control line.
 3. Verify cipher is "XChaCha20-Poly1305".
 4. Apply yEnc decoding to data lines to retrieve encrypted payload.
-5. Derive key and nonce using the extracted salt and same procedure as
-   encryption (including big-endian uint32_be serialization of segmentIndex).
+5. Derive key and nonce using the extracted salt, password, and
+   segmentIndex obtained from the NZB segment element, including
+   big-endian uint32_be serialization of segmentIndex.
 6. Decrypt using XChaCha20-Poly1305 with derived parameters.
 7. Verify authentication tag matches the tag from the control line.
 8. Output decrypted binary data on successful authentication.
@@ -213,36 +237,82 @@ ciphertext to subsequent pipeline stages when authentication fails.
   subsequent processing stages.
 - The scheme provides both confidentiality and integrity, unlike
   format-preserving approaches.
+- segmentIndex is public metadata carried in the NZB; it does not
+  require confidentiality.
+- Modifying segmentIndex derives an incorrect nonce and causes
+  Poly1305 tag verification to fail with zero plaintext output.
+- Subject lines and file ordering have no cryptographic meaning; full
+  and per-article subject obfuscation does not affect decryption.
 
 ----------------------------------------------------------------------
 8. NZB File Requirements
 
-When uploading encrypted yEnc blocks, Usenet upload tools MUST
-include the file numbering information used for the calculation of
-the continuous segmentIndex in the NZB file to preserve multipart
-file reconstruction capability:
+An NZB 1.1 document accompanying encrypted uploads MUST specify
+encryption metadata according to the following rules:
 
-- The subject parameter of each <file> tag MUST begin with the file
-  number specifier in the format "[<file number>/<total files>]"
-- Example: subject="[1/3] filename.bin" for the first file of three
-- This ensures download clients can determine the file number for
-  the calculation of the continuous segmentIndex
+XML Extension:
+Each <segment> element under <segments> within <file> carries an
+unqualified, case-sensitive segmentIndex attribute:
 
-- The NZB file CAN include the encryption password as a meta tag:
+  <segment bytes="750000" number="1" segmentIndex="1">article-1@example.com</segment>
+
+Attribute Specification:
+- Attribute name: segmentIndex (exact case-sensitive ASCII string).
+- Range: unsigned 32-bit integer from 1 to 4294967295 (1..=4294967295).
+- Formatting: shortest ASCII decimal representation (digits 0-9 only).
+  Implementations MUST reject zero, leading zeroes, signs, whitespace,
+  non-decimal characters, non-digits, and values exceeding 4294967295.
+
+Coexistence with Standard Attributes:
+The number attribute represents the 1-based part number within the file.
+The segmentIndex attribute represents the session-wide encryption index.
+Both attributes MUST be written; segmentIndex does not replace number.
+
+Producer Requirements:
+For an encrypted upload, the NZB writer MUST:
+1. Add segmentIndex to every <segment> in the upload session.
+2. Serialize it as the shortest ASCII decimal representation of an
+   integer in the range 1..=4294967295.
+3. Ensure each encrypted article has a unique value within the upload
+   session.
+4. Assign indices continuously from 1 when creating a complete new
+   upload.
+5. Preserve an article's assigned index across retries, reposts,
+   resume, NZB regeneration, and queue operations.
+6. Continue writing the standard number attribute.
+
+Stored article identity is authoritative. A producer MUST NOT derive an
+existing article's index again after files or segments are reordered.
+
+Consumer Requirements:
+An encryption-aware NZB reader MUST:
+1. Parse and strictly validate segmentIndex whenever present.
+2. Reject zero, leading zeroes, signs, whitespace, non-digits, and
+   values exceeding 4294967295.
+3. Reject duplicate segmentIndex values in the same NZB.
+4. Keep the index attached to the same Message-ID through retries,
+   persistence, queue reordering, splitting, and restart.
+5. Use the explicit index for body nonce derivation.
+6. Reject an encrypted article whose NZB segment lacks a valid index.
+7. Treat authentication failure as provider corruption only after the
+   NZB identity has passed validation.
+
+Consumers SHOULD accept non-contiguous subsets. This permits a valid
+subset of an original NZB to retain the original cryptographic
+identities. A consumer MUST NOT renumber such a subset.
+
+Decoupling of Subjects and File Order:
+Under this extension:
+- The <file subject> has no cryptographic meaning.
+- The NNTP Subject header has no cryptographic meaning.
+- XML file order has no cryptographic meaning.
+- XML segment order has no cryptographic meaning.
+- [N/M] file counters are optional presentation metadata.
+
+Password Metadata:
+The NZB file CAN include the encryption password as a meta tag:
   <meta type="password">your_encryption_password</meta>
-- This allows download clients to automatically decrypt the binary
-  data
-
-Usenet download clients encountering "=yencryption" control lines
-MUST:
-- Extract the file number from the NZB subject line
-- Use this information for proper file sequencing and calculation of
-  the segmentIndex
-- Use the password from the NZB meta tag (if available) for
-  automatic decryption
-
-This requirement ensures multipart file downloads and decryption work
-correctly even when binary data is encrypted.
+This allows download clients to automatically decrypt the binary data.
 
 ----------------------------------------------------------------------
 9. Interoperability Notes
@@ -261,7 +331,12 @@ correctly even when binary data is encrypted.
 
 Input binary data: [18 bytes: 0x48656C6C6F20576F726C642E747874FF]
 Password: "test123"
-segmentIndex: 1
+
+Corresponding NZB segment XML:
+
+  <segment bytes="18" number="1" segmentIndex="1">article-1@example.com</segment>
+
+segmentIndex=1 is obtained from the NZB segmentIndex attribute.
 
 Derived parameters:
 - salt: Random 16-byte value = 1a2b3c4d5e6f7890abcdef1234567890
@@ -285,8 +360,8 @@ yEnc encoded output:
 Decryption Processing:
 1. Parse "=yencryption" line to extract salt and authentication tag
 2. yEnc decode data lines to get 18-byte ciphertext
-3. Derive key/nonce using extracted salt and segmentIndex=1
-   (using uint32_be(1))
+3. Derive key/nonce using extracted salt and segmentIndex=1 obtained
+   from the NZB segment attribute (using uint32_be(1))
 4. Decrypt ciphertext using XChaCha20-Poly1305 with tag from
    control line
 5. Verify authentication during decryption process
