@@ -33,6 +33,12 @@
       "vector_count": 21,
       "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors (VEC-05)",
       "requirement": "VEC-05"
+    },
+    "nzb_segment_identity.json": {
+      "sha256": "c9de1997f6d2e5f434db09cd702501bd4268746393fdd32ec3e64e1f589d833c",
+      "vector_count": 33,
+      "description": "Canonical NZB explicit segmentIndex identity, validation, and tampering vectors (VEC-06)",
+      "requirement": "VEC-06"
     }
   }
 }
