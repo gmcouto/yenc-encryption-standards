@@ -1,6 +1,6 @@
 SPECIFICATION: yEnc Control Lines Encryption Standard
 Version: 1.0
-Date: 2026-09-23
+Date: 2026-09-25
 Author: Independent Specification
 
 Status: Frozen Wire Contract (v1.0)
@@ -15,6 +15,21 @@ character range required for Usenet transmission.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.0 (2026-09-25):
+- Replaced subject-derived segment numbering with explicit NZB-anchored
+  segmentIndex attribute on <segment> elements.
+- Defined exact attribute syntax: case-sensitive segmentIndex, range
+  1..=4294967295, canonical shortest ASCII decimal representation with
+  no leading zeroes, signs, whitespace, or non-digits.
+- Removed all cryptographic dependency on NZB <file subject>, NNTP
+  headers, XML file order, and segment order.
+- Specified producer requirements (continuous from 1, unique per
+  session, preserved across retries, reposts, resume) and consumer
+  requirements (strict parsing, reject zero/duplicates/malformed,
+  accept non-contiguous subsets without renumbering).
+- Clarified that decryption requires only the validated NZB segment
+  record, password, and fetched article body.
 
 Version 1.0 (2026-09-23):
 - Resolved salt carriage contradiction: clarified that the first
@@ -93,7 +108,7 @@ due to the salt prepended to the first line.
     CRLF (0x0D 0x0A) line terminators.
 
   Alphabet:
-    The 253-symbol byte domain: all byte values 0x01–0xFF except
+    The 253-symbol byte domain: all byte values 0x01-0xFF except
     0x0A (LF) and 0x0D (CR).
 
     Canonical Numeral Bijection Table (Radix 253):
@@ -112,20 +127,18 @@ due to the salt prepended to the first line.
       - For I >= 11:                        b = I + 3
 
   segmentIndex:
-    A 32-bit unsigned integer >= 1 providing a continuous, globally
-    unique index across all segments in the upload sequence,
-    regardless of file boundaries. For example, if file 1 has
-    segments 1, 2, and 3, then segment 1 of file 2 has segmentIndex
-    4. This ensures unique tweak values for every segment across the
-    entire upload session.
+    An unsigned 32-bit integer in the range 1..=4294967295 carried
+    explicitly as the segmentIndex attribute on each NZB <segment>
+    element. It provides unique tweak values for every segment across
+    the upload session without file-boundary arithmetic.
 
   lineIndex:
     A 32-bit unsigned integer (1 <= lineIndex <= N) representing the
     1-based physical line number of every line (header, data, or
     footer) within the yEnc block, where N is the total physical line
     count of the block.
-    Every line in the block—whether an encrypted control line or an
-    unmodified data line—increments lineIndex sequentially by 1.
+    Every line in the block, whether an encrypted control line or an
+    unmodified data line, increments lineIndex sequentially by 1.
     The first line of the block has lineIndex = 1; the final footer
     line (=yend) has lineIndex = N.
     Used to generate unique tweaks for FF1 encryption/decryption of
@@ -134,7 +147,9 @@ due to the salt prepended to the first line.
 ----------------------------------------------------------------------
 3. Processing Procedure
 
-Input: Complete yEnc block with any line endings (LF or CRLF).
+Input: Complete yEnc block with any line endings (LF or CRLF),
+password, and segmentIndex obtained from the corresponding NZB
+<segment> record.
 
 yEnc Structure Pattern:
 - Header line(s): "=ybegin ...", "=ypart ..." (if multipart), "=yencryption ..." (if body encrypted)
@@ -178,6 +193,8 @@ Parameters:
     threads=4, 256-bit output)
   - Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" ||
     uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
+    where segmentIndex is the unsigned 32-bit integer matching the
+    NZB segmentIndex attribute.
 
 Procedure (applied to each yEnc control line individually):
 
@@ -194,7 +211,8 @@ Procedure (applied to each yEnc control line individually):
      The message input to HMAC-SHA256 is exactly 26 bytes:
        - Bytes 0..17 (18 bytes): ASCII prefix "yenc-control tweak"
        - Bytes 18..21 (4 bytes): uint32_be(segmentIndex) (4-byte
-         unsigned integer in big-endian network byte order)
+         unsigned integer in big-endian network byte order, matching
+         the NZB segmentIndex attribute)
        - Bytes 22..25 (4 bytes): uint32_be(lineIndex) (4-byte
          unsigned integer in big-endian network byte order)
      The tweak is the first 8 bytes of the resulting HMAC-SHA256
@@ -212,7 +230,9 @@ additional encoding step before transmission.
 ----------------------------------------------------------------------
 5. Decryption Algorithm
 
-Input: yEnc block with encrypted control lines (total physical lines N).
+Input: yEnc block with encrypted control lines (total physical lines N),
+password, and segmentIndex obtained from the corresponding NZB
+segment element.
 
 Steps:
 
@@ -224,14 +244,15 @@ Steps:
    c. Remove salt prefix from line 1 content (remaining bytes are
       the FF1 ciphertext)
    d. Derive masterKey, encKey, and tweak using extracted salt,
-      segmentIndex, and lineIndex=1
+      segmentIndex obtained from the NZB segment element, and lineIndex=1
    e. Apply FF1 decryption over the 253-character alphabet
    f. Verify decrypted content starts with "=ybegin"
    g. Replace line 1 encrypted content with decrypted content
 3. Process subsequent header lines (lineIndex = 2, 3, ...):
    a. For each physical line before data lines (lineIndex=2, 3, ...):
       - Extract line content (excluding line terminators)
-      - Derive tweak using extracted salt, segmentIndex, and current lineIndex
+      - Derive tweak using extracted salt, segmentIndex obtained from
+        the NZB segment element, and current lineIndex
       - Apply FF1 decryption over the 253-character alphabet
       - If decrypted content starts with "=y":
         * Replace line content with decrypted content
@@ -244,7 +265,8 @@ Steps:
    - Leave all data lines untouched, incrementing lineIndex for each physical line
 5. Process the final line (footer, lineIndex = N):
    a. Extract the last physical line content (excluding line terminators)
-   b. Derive tweak using extracted salt, segmentIndex, and lineIndex = N
+   b. Derive tweak using extracted salt, segmentIndex obtained from
+      the NZB segment element, and lineIndex = N
    c. Apply FF1 decryption over the 253-character alphabet
    d. Verify decrypted content starts with "=yend"
    e. Replace line N encrypted content with decrypted content
@@ -277,33 +299,84 @@ Steps:
   authenticity.
 - Deterministic output leaks identical plaintext segments if
   key/tweak pairs repeat.
+- segmentIndex is public metadata carried in the NZB; it does not
+  require confidentiality.
+- Tampering with segmentIndex produces an incorrect tweak, causing
+  FF1 to output arbitrary bytes that do not begin with "=ybegin"
+  on line 1, failing restoration.
+- Subject lines and file ordering have no cryptographic meaning; full
+  and per-article subject obfuscation does not affect decryption.
 
 ----------------------------------------------------------------------
 8. NZB File Requirements
 
-When uploading encrypted yEnc blocks, Usenet upload tools MUST
-include the file numbering information used for the calculation of
-the continuous segmentIndex in the NZB file to preserve multipart
-file reconstruction capability:
+An NZB 1.1 document accompanying encrypted uploads MUST specify
+encryption metadata according to the following rules:
 
-- The subject parameter of each <file> tag MUST begin with the file
-  number specifier in the format "[<file number>/<total files>]"
-- Example: subject="[1/3] filename.bin" for the first file of three
-- This ensures download clients can determine the file number for
-  the calculation of the continuous segmentIndex
+XML Extension:
+Each <segment> element under <segments> within <file> carries an
+unqualified, case-sensitive segmentIndex attribute:
 
-- The NZB file CAN include the encryption password as a meta tag:
+  <segment bytes="750000" number="1" segmentIndex="1">article-1@example.com</segment>
+
+Attribute Specification:
+- Attribute name: segmentIndex (exact case-sensitive ASCII string).
+- Range: unsigned 32-bit integer from 1 to 4294967295 (1..=4294967295).
+- Formatting: shortest ASCII decimal representation (digits 0-9 only).
+  Implementations MUST reject zero, leading zeroes, signs, whitespace,
+  non-decimal characters, non-digits, and values exceeding 4294967295.
+
+Coexistence with Standard Attributes:
+The number attribute represents the 1-based part number within the file.
+The segmentIndex attribute represents the session-wide encryption index.
+Both attributes MUST be written; segmentIndex does not replace number.
+
+Producer Requirements:
+For an encrypted upload, the NZB writer MUST:
+1. Add segmentIndex to every <segment> in the upload session.
+2. Serialize it as the shortest ASCII decimal representation of an
+   integer in the range 1..=4294967295.
+3. Ensure each encrypted article has a unique value within the upload
+   session.
+4. Assign indices continuously from 1 when creating a complete new
+   upload.
+5. Preserve an article's assigned index across retries, reposts,
+   resume, NZB regeneration, and queue operations.
+6. Continue writing the standard number attribute.
+
+Stored article identity is authoritative. A producer MUST NOT derive an
+existing article's index again after files or segments are reordered.
+
+Consumer Requirements:
+An encryption-aware NZB reader MUST:
+1. Parse and strictly validate segmentIndex whenever present.
+2. Reject zero, leading zeroes, signs, whitespace, non-digits, and
+   values exceeding 4294967295.
+3. Reject duplicate segmentIndex values in the same NZB.
+4. Keep the index attached to the same Message-ID through retries,
+   persistence, queue reordering, splitting, and restart.
+5. Use the explicit index for control-line tweak derivation.
+6. Reject an encrypted article whose NZB segment lacks a valid index.
+7. Treat authentication failure as provider corruption only after the
+   NZB identity has passed validation.
+
+Consumers SHOULD accept non-contiguous subsets. This permits a valid
+subset of an original NZB to retain the original cryptographic
+identities. A consumer MUST NOT renumber such a subset.
+
+Decoupling of Subjects and File Order:
+Under this extension:
+- The <file subject> has no cryptographic meaning.
+- The NNTP Subject header has no cryptographic meaning.
+- XML file order has no cryptographic meaning.
+- XML segment order has no cryptographic meaning.
+- [N/M] file counters are optional presentation metadata.
+
+Password Metadata:
+The NZB file CAN include the encryption password as a meta tag:
   <meta type="password">your_encryption_password</meta>
-- This allows download clients to automatically decrypt the yEnc
-  control lines
-
-Usenet download clients encountering encrypted yEnc headers MUST:
-- Extract the file number from the NZB subject line
-- Use this information for proper file sequencing and calculation of
-  the segmentIndex
-
-This requirement ensures multipart file downloads work correctly even
-when yEnc control lines are encrypted.
+This allows download clients to automatically decrypt the yEnc control
+lines.
 
 ----------------------------------------------------------------------
 9. Interoperability Notes
@@ -333,16 +406,22 @@ Input plaintext:
   ghiJKL456\r\n
   =yend size=18\r\n
 
+Corresponding NZB segment XML:
+
+  <segment bytes="49" number="1" segmentIndex="1">article-1@example.com</segment>
+
+Here segmentIndex=1 is obtained from the NZB segmentIndex attribute.
+
 Encryption Processing:
 - Total physical lines N = 4.
 - Line 1 (lineIndex=1): "=ybegin line=9 size=18 name=file.bin" (33 bytes)
-  -> FF1 encrypt with tweak(segmentIndex, 1) (33 bytes)
+  -> FF1 encrypt with tweak derived from segmentIndex=1 and lineIndex=1 (33 bytes)
   -> Prepend 16-byte random salt from Alphabet
   -> Encrypted line 1 expands by 16 bytes: 16 bytes salt + 33 bytes ciphertext = 49 bytes.
 - Line 2 (lineIndex=2): "abcDEF123" -> unchanged (data line).
 - Line 3 (lineIndex=3): "ghiJKL456" -> unchanged (data line).
 - Line 4 (lineIndex=4): "=yend size=18" (13 bytes)
-  -> FF1 encrypt with tweak(segmentIndex, 4) (13 bytes)
+  -> FF1 encrypt with tweak derived from segmentIndex=1 and lineIndex=4 (13 bytes)
   -> Preserves exact length: 13 bytes ciphertext.
 
 Encrypted output:
@@ -355,7 +434,7 @@ Encrypted output:
 Decryption Processing:
 - Line 1 (lineIndex=1):
   * Extract first 16 bytes as salt.
-  * Decrypt remaining 33 bytes with lineIndex=1 and extracted salt.
+  * Decrypt remaining 33 bytes with lineIndex=1, segmentIndex=1 obtained from the NZB segment, and extracted salt.
   * Result: "=ybegin line=9 size=18 name=file.bin" -> valid header, keep.
 - Line 2 (lineIndex=2):
   * Attempt decrypt with lineIndex=2.
@@ -364,7 +443,7 @@ Decryption Processing:
 - Line 3 (lineIndex=3):
   * Data line -> retain original "ghiJKL456" untouched.
 - Line 4 (lineIndex=4=N):
-  * Decrypt last physical line (lineIndex=4) with extracted salt.
+  * Decrypt last physical line (lineIndex=4) with lineIndex=4, segmentIndex=1 obtained from the NZB segment, and extracted salt.
   * Result: "=yend size=18" -> valid footer.
 
 After decryption, the reconstructed text matches the original yEnc
