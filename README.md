@@ -56,13 +56,51 @@ This repository contains specifications for **two complementary encryption stand
 - **When**: No special security requirements
 - **Benefits**: Standard yEnc processing, maximum compatibility
 
-## Password Management
+## Password Management and NZB Metadata
 
 **NZB File Storage**: When encryption is used, the password CAN be stored in the NZB file using the standard password meta tag:
 
 ```xml
 <meta type="password">your_encryption_password</meta>
 ```
+
+**NZB 1.1 Segment Extension Example**:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN"
+ "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+  <head>
+    <meta type="password">correct horse battery staple</meta>
+  </head>
+  <file poster="poster@example.com"
+        date="1727280000"
+        subject="4Qd7sJm2pL yEnc (1/2)">
+    <groups>
+      <group>alt.binaries.example</group>
+    </groups>
+    <segments>
+      <segment bytes="750000" number="1" segmentIndex="1">article-1@example.com</segment>
+      <segment bytes="750000" number="2" segmentIndex="2">article-2@example.com</segment>
+    </segments>
+  </file>
+  <file poster="poster@example.com"
+        date="1727280001"
+        subject="n8Vx3KaP yEnc (1/1)">
+    <groups>
+      <group>alt.binaries.example</group>
+    </groups>
+    <segments>
+      <segment bytes="500000" number="1" segmentIndex="3">article-3@example.com</segment>
+    </segments>
+  </file>
+</nzb>
+```
+
+The attributes have distinct meanings:
+- `number` is the standard NZB 1.1 1-based part number within the file.
+- `segmentIndex` is the explicit global index (range 1..=4294967295) used for encryption derivation.
 
 **Download Client Behavior**: Download clients MUST use the password from the NZB meta tag (if available) for automatic decryption of encrypted yEnc blocks.
 
@@ -134,6 +172,7 @@ Alphabet: 253 bytes (0x01-0xFF excluding CR/LF)
 Cipher: FF1 with AES-256
 Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
 Tweak: HMAC-SHA256(master, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
+segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from NZB segment attribute
 Salt: 16 random bytes sampled from 253-byte Alphabet, prepended to line 1 (lineIndex=1 expands by 16B, lines 2..N preserve length)
 ```
 
@@ -149,6 +188,7 @@ Cipher: XChaCha20 (256-bit key, 192-bit nonce)
 Authentication: Poly1305 (128-bit tag)
 Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
 Nonce: HMAC-SHA256(key, "yenc-body nonce" || uint32_be(segmentIndex))[0:24]
+segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from NZB segment attribute
 Salt: 16 cryptographically secure random bytes (CSPRNG), carried in =yencryption control line
 Format: =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>
 ```
@@ -194,8 +234,9 @@ Format: =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_c
 
 ### Both Standards
 
-- Segment indexing must be globally unique across entire upload session
-- NZB files must include file numbering for proper segmentIndex calculation
+- Each NZB `<segment>` MUST carry an explicit `segmentIndex="N"` attribute (range 1..=4294967295)
+- Segment indexing must be globally unique across the upload session
+- NNTP headers, file subjects, and file ordering have no cryptographic meaning
 - Password can be stored in NZB meta tags for automatic decryption
 
 ## Status
