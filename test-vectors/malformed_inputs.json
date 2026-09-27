@@ -228,7 +228,7 @@
       "category": "header_syntax",
       "description": "Parameter order is canonical and mandatory",
       "input_line": "=yencryption salt=1a2b3c4d5e6f7890abcdef1234567890 cipher=XChaCha20-Poly1305 tag=ed70d238067735a20783df5e094ccafa",
-      "expected_error": "INVALID_TOKEN_ORDER",
+      "expected_error": "REORDERED_HEADER",
       "provider_failover_permitted": false,
       "zero_output_required": true
     },
