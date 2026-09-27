@@ -231,7 +231,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_ZERO",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"0\">art-nzb-invalid-01-zero-index@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"0\">art-nzb-invalid-01-zero-index@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-02-leading-zero-single",
@@ -241,7 +241,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_LEADING_ZERO",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"01\">art-nzb-invalid-02-leading-zero-single@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"01\">art-nzb-invalid-02-leading-zero-single@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-03-leading-zero-multi",
@@ -251,7 +251,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_LEADING_ZERO",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"007\">art-nzb-invalid-03-leading-zero-multi@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"007\">art-nzb-invalid-03-leading-zero-multi@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-04-plus-sign",
@@ -261,7 +261,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_SIGN",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"+1\">art-nzb-invalid-04-plus-sign@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"+1\">art-nzb-invalid-04-plus-sign@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-05-minus-sign",
@@ -271,7 +271,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_SIGN",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"-1\">art-nzb-invalid-05-minus-sign@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"-1\">art-nzb-invalid-05-minus-sign@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-06-leading-whitespace",
@@ -281,7 +281,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_WHITESPACE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\" 1\">art-nzb-invalid-06-leading-whitespace@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\" 1\">art-nzb-invalid-06-leading-whitespace@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-07-trailing-whitespace",
@@ -291,7 +291,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_WHITESPACE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1 \">art-nzb-invalid-07-trailing-whitespace@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1 \">art-nzb-invalid-07-trailing-whitespace@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-08-internal-whitespace",
@@ -301,7 +301,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_WHITESPACE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1 2\">art-nzb-invalid-08-internal-whitespace@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1 2\">art-nzb-invalid-08-internal-whitespace@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-09-tab-character",
@@ -311,7 +311,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_WHITESPACE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\t\">art-nzb-invalid-09-tab-character@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\t\">art-nzb-invalid-09-tab-character@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-10-newline-character",
@@ -321,7 +321,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_WHITESPACE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\n\">art-nzb-invalid-10-newline-character@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\n\">art-nzb-invalid-10-newline-character@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-11-hex-prefix",
@@ -331,7 +331,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_NON_DIGIT",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"0x01\">art-nzb-invalid-11-hex-prefix@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"0x01\">art-nzb-invalid-11-hex-prefix@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-12-float-decimal",
@@ -341,7 +341,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_NON_DIGIT",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1.0\">art-nzb-invalid-12-float-decimal@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1.0\">art-nzb-invalid-12-float-decimal@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-13-alpha-text",
@@ -351,7 +351,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_NON_DIGIT",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"one\">art-nzb-invalid-13-alpha-text@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"one\">art-nzb-invalid-13-alpha-text@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-14-empty-string",
@@ -361,7 +361,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_EMPTY",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"\">art-nzb-invalid-14-empty-string@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"\">art-nzb-invalid-14-empty-string@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-15-overflow-max-plus-1",
@@ -371,7 +371,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_OVERFLOW",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"4294967296\">art-nzb-invalid-15-overflow-max-plus-1@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"4294967296\">art-nzb-invalid-15-overflow-max-plus-1@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-16-overflow-large",
@@ -381,7 +381,7 @@
       "expected_error": "INVALID_SEGMENT_INDEX_OVERFLOW",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"18446744073709551615\">art-nzb-invalid-16-overflow-large@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;invalid_file.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"18446744073709551615\">art-nzb-invalid-16-overflow-large@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-17-missing-index-encrypted",
@@ -391,7 +391,7 @@
       "expected_error": "MISSING_SEGMENT_INDEX",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;missing_index.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\">art-missing@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;missing_index.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\">art-missing@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-18-duplicate-index",
@@ -401,7 +401,7 @@
       "expected_error": "DUPLICATE_SEGMENT_INDEX",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;duplicate_index.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\">art-dup-1@example.com</segment>\n      <segment bytes=\"750000\" number=\"2\" segmentIndex=\"1\">art-dup-2@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;duplicate_index.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\">art-dup-1@example.com</segment>\n      <segment bytes=\"750000\" number=\"2\" segmentIndex=\"1\">art-dup-2@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-invalid-19-conflicting-message-id",
@@ -411,7 +411,7 @@
       "expected_error": "CONFLICTING_MESSAGE_ID_INDEX",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "zero_output_required": true,
-      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n    <meta type=\"yenc_encrypted\">true</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;conflicting_mid_1.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\">art-conflict@example.com</segment>\n    </segments>\n  </file>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;conflicting_mid_2.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"2\">art-conflict@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
+      "nzb_xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\">\n  <head>\n    <meta type=\"password\">test123</meta>\n  </head>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;conflicting_mid_1.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"1\">art-conflict@example.com</segment>\n    </segments>\n  </file>\n  <file poster=\"poster@example.com\" date=\"1774300000\" subject=\"&quot;conflicting_mid_2.bin&quot;\">\n    <groups>\n      <group>alt.binaries.test</group>\n    </groups>\n    <segments>\n      <segment bytes=\"750000\" number=\"1\" segmentIndex=\"2\">art-conflict@example.com</segment>\n    </segments>\n  </file>\n</nzb>"
     },
     {
       "id": "nzb-compat-01-unencrypted-legacy",

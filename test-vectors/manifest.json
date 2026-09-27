@@ -35,7 +35,7 @@
       "requirement": "VEC-05"
     },
     "nzb_segment_identity.json": {
-      "sha256": "493f09816266f64dfa9b3ef434f51484473332bc839009b34595d9b548927ffe",
+      "sha256": "6ee81c24dce35f56f6bc6485c44917927fba90f9703fb14f5e3dadf1495d519d",
       "vector_count": 33,
       "description": "Canonical NZB explicit segmentIndex identity, validation, and tampering vectors (VEC-06)",
       "requirement": "VEC-06"
