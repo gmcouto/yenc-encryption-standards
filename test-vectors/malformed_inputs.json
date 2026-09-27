@@ -266,7 +266,7 @@
       "category": "header_syntax",
       "description": "Duplicate parameters are rejected",
       "input_line": "=yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 tag=ed70d238067735a20783df5e094ccafa tag=ed70d238067735a20783df5e094ccafa",
-      "expected_error": "EXTRA_PARAMETER",
+      "expected_error": "DUPLICATE_PARAMETER",
       "provider_failover_permitted": false,
       "zero_output_required": true
     },
