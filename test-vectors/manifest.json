@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "standard_version": "1.0",
-  "generated_at": "2026-09-23T22:00:00Z",
+  "generated_at": "2026-09-27T22:00:00Z",
   "description": "Deterministic test vectors for yEnc Body & Control Lines Encryption Standards v1.0",
   "files": {
     "argon2id.json": {
@@ -29,13 +29,13 @@
       "requirement": "VEC-04"
     },
     "malformed_inputs.json": {
-      "sha256": "b226103dcad441aa8fa83d180a252454a58348d1adf9a2a2b80a1f3a5c86371e",
-      "vector_count": 21,
+      "sha256": "f712c42692626ddc4e2836744ff0071c06e5e1ba7001075735e721965fa427f5",
+      "vector_count": 31,
       "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors (VEC-05)",
       "requirement": "VEC-05"
     },
     "nzb_segment_identity.json": {
-      "sha256": "c9de1997f6d2e5f434db09cd702501bd4268746393fdd32ec3e64e1f589d833c",
+      "sha256": "493f09816266f64dfa9b3ef434f51484473332bc839009b34595d9b548927ffe",
       "vector_count": 33,
       "description": "Canonical NZB explicit segmentIndex identity, validation, and tampering vectors (VEC-06)",
       "requirement": "VEC-06"
