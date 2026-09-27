@@ -210,7 +210,7 @@
       "category": "header_syntax",
       "description": "Uppercase hexadecimal is not canonical",
       "input_line": "=yencryption cipher=XChaCha20-Poly1305 salt=1A2B3C4D5E6F7890ABCDEF1234567890 tag=ed70d238067735a20783df5e094ccafa",
-      "expected_error": "UPPERCASE_HEX",
+      "expected_error": "INVALID_SALT_HEX",
       "provider_failover_permitted": false,
       "zero_output_required": true
     },

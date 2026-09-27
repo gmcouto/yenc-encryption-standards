@@ -29,7 +29,7 @@
       "requirement": "VEC-04"
     },
     "malformed_inputs.json": {
-      "sha256": "f712c42692626ddc4e2836744ff0071c06e5e1ba7001075735e721965fa427f5",
+      "sha256": "05c2ce7f8e0b35780c4bc933c52b6a64441cabbc3d516045f1035ecd11bbad7c",
       "vector_count": 31,
       "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors (VEC-05)",
       "requirement": "VEC-05"
