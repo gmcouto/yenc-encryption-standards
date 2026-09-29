@@ -1,0 +1,449 @@
+{
+  "schema_version": "1.0",
+  "description": "Comprehensive multi-client implementation parity and deviation matrix for yEnc Body and Control Lines Encryption Standards across Pesto, Penne, SABnzbd, and NZBGet.",
+  "implementations": [
+    "pesto",
+    "penne",
+    "sabnzbd",
+    "nzbget"
+  ],
+  "behaviors": [
+    {
+      "id": "BEH-PROV-01",
+      "category": "provenance_metadata",
+      "name": "NZB Explicit Transport Encryption Provenance Marker",
+      "current_spec_wording": "Section 8 documents <meta type=\"password\"> for decryption passwords but omits <meta type=\"yenc_encrypted\">.",
+      "pesto_behavior": "Emits `<meta type=\"yenc_encrypted\">true</meta>` in `<nzb><head>` whenever transport encryption is enabled.",
+      "penne_behavior": "Parses `yenc_encrypted` meta tag into `NzbMetadata.yenc_encrypted`; gates transport decryption strictly when this flag is true.",
+      "sabnzbd_behavior": "Parses `<meta type=\"yenc_encrypted\">true</meta>` in `nzbparser.py` and sets `NZBObject.yenc_encrypted = True`. Decouples wire decryption from archive unrar.",
+      "nzbget_behavior": "SAX parses `meta` tag with `type=\"yenc_encrypted\"` and sets `m_yencEncryptedMeta = true` in `NzbFile.cpp`.",
+      "accepted_forms": [
+        "<meta type=\"yenc_encrypted\">true</meta> (case-insensitive 'true')"
+      ],
+      "rejected_forms": [
+        "Omitted tag (defaults to false / ordinary yEnc)",
+        "Non-true text values ('false', '0', 'yes')"
+      ],
+      "security_impact": "Prevents unencrypted NZBs with archive passwords from triggering transport decryption errors and prevents downgrade attacks.",
+      "normative_disposition": "normative_nzb_standard",
+      "spec_target": "yEnc Body Encryption Standard Section 8 / yEnc Control Lines Encryption Standard Section 8",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-06",
+      "source_symbols": {
+        "pesto": "pesto::nzb::writer::write_nzb",
+        "penne": "penne::nzb::parse_nzb / NzbMetadata.yenc_encrypted",
+        "sabnzbd": "sabnzbd.nzbparser.parse_nzb_xml / NZBObject.yenc_encrypted",
+        "nzbget": "NzbFile::ReadNzbFile / NzbFile.m_yencEncryptedMeta / DownloadInfo::GetYEncEncrypted"
+      },
+      "validation_commands": [
+        "pytest tests/test_cross_client_compat.py -k test_penne_plain_yenc_with_password_unzips_without_decryption -v",
+        "pytest tests/test_cross_client_compat.py -k test_sabnzbd_archive_password_only_bypasses_transport_decryption -v",
+        "pytest tests/test_cross_client_compat.py -k test_nzbget_archive_password_only_bypasses_transport_decryption -v"
+      ]
+    },
+    {
+      "id": "BEH-SALT-01",
+      "category": "dual_salt_agreement",
+      "name": "Byte-for-Byte Dual-Salt Cross-Header Equality",
+      "current_spec_wording": "Control lines spec defines 16-byte Alphabet salt in Line 1; Body spec defines 32-hex salt in =yencryption. Does not mandate equality when both active.",
+      "pesto_behavior": "Generates one 16-byte random salt per session and emits identical raw bytes into Line 1 (Alphabet) and =yencryption (32 lowercase hex characters).",
+      "penne_behavior": "Extracts Line 1 salt and =yencryption salt, asserting `yenc_params.salt == session.salt()`. Fails closed on mismatch.",
+      "sabnzbd_behavior": "Extracts Line 1 salt via `extract_salt_from_line1` and =yencryption salt via `parse_yencryption_line`, asserting exact byte equality. Fails closed on mismatch.",
+      "nzbget_behavior": "Extracts Line 1 salt and parses =yencryption salt, asserting `memcmp(line1Salt, yencSalt, 16) == 0`. Fails closed on mismatch.",
+      "accepted_forms": [
+        "Identical 16 raw byte values between Line 1 Alphabet-encoded salt and =yencryption hex-encoded salt"
+      ],
+      "rejected_forms": [
+        "Mismatched salt bytes between Line 1 and =yencryption",
+        "Missing salt in either header when combined encryption is active"
+      ],
+      "security_impact": "Prevents key/nonce desynchronization and dual-context tampering between header and body cryptographic domains.",
+      "normative_disposition": "security_invariant",
+      "spec_target": "yEnc Body Encryption Standard Section 3 & 4 / yEnc Control Lines Encryption Standard Section 3 & 4",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::UploadEncryptionAdapter::encode_article",
+        "penne": "pesto::crypto::adapter::DownloadDecryptionAdapter::decode_article",
+        "sabnzbd": "sabnzbd.encryption.DecryptionAdapter.decrypt_article",
+        "nzbget": "YEncDecryptor::DecryptArticle"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_encryption.py -k test_salt_mismatch_fails_closed -v",
+        "pytest tests/test_cross_client_compat.py -k test_cross_client_offline_matrix -v",
+        "(cd pesto && cargo test -p pesto crypto::tests::test_dual_salt_agreement)"
+      ]
+    },
+    {
+      "id": "BEH-GRAM-01",
+      "category": "header_grammar",
+      "name": "Strict Canonical Four-Token =yencryption Grammar",
+      "current_spec_wording": "Shows '=yencryption cipher=XChaCha20-Poly1305 salt=<hex> tag=<hex>' without explicitly forbidding reordering, extra tokens, or uppercase hex.",
+      "pesto_behavior": "Emits strict canonical format `=yencryption cipher=XChaCha20-Poly1305 salt=<32_lower_hex> tag=<32_lower_hex>` with exactly 4 tokens and lowercase hex.",
+      "penne_behavior": "`parse_yencryption_line` enforces 4 tokens, exact token keys in order, exact length 32, and lowercase hex `[0-9a-f]`. Rejects uppercase, duplicate, or extra tokens.",
+      "sabnzbd_behavior": "`parse_yencryption_line` strictly checks 4 tokens, exact key prefixes, lowercase hex, and 32-character lengths. Rejects malformed headers.",
+      "nzbget_behavior": "`ParseYEncryptionHeader` enforces 4 whitespace-separated tokens, exact key names in order, lowercase hex, and rejects extra/missing tokens.",
+      "accepted_forms": [
+        "=yencryption cipher=XChaCha20-Poly1305 salt=<32_lower_hex> tag=<32_lower_hex>"
+      ],
+      "rejected_forms": [
+        "Uppercase hex [0-9A-F]",
+        "Extra parameters (e.g. version=1.0, len=...)",
+        "Reordered parameters (e.g. salt before cipher, tag before salt)",
+        "Duplicate parameters",
+        "Missing parameters",
+        "Non-32 character hex string length"
+      ],
+      "security_impact": "Prevents parser differential vulnerabilities, parameter injection, and ambiguity in cryptographic header processing.",
+      "normative_disposition": "normative_wire_standard",
+      "spec_target": "yEnc Body Encryption Standard Section 4 & 6",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::parse_yencryption_line",
+        "penne": "pesto::crypto::adapter::parse_yencryption_line",
+        "sabnzbd": "sabnzbd.encryption.parse_yencryption_line",
+        "nzbget": "YEncDecryptor::ParseYEncryptionHeader"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_encryption.py -k test_parse_yencryption_line -v",
+        "(cd pesto && cargo test -p pesto crypto::tests::test_yencryption_parser_strict)"
+      ]
+    },
+    {
+      "id": "BEH-PLAC-01",
+      "category": "header_placement",
+      "name": "Single-Part Article Header Placement at Physical Line 2",
+      "current_spec_wording": "States =yencryption is inserted after =ybegin line. Does not specify physical line ordinal.",
+      "pesto_behavior": "Emits `=yencryption` immediately after `=ybegin` on physical line 2 (lineIndex = 2) for single-part articles.",
+      "penne_behavior": "`extract_and_remove_yencryption` enforces `=yencryption` is on physical line 2 in single-part articles and rejects if found on any other line.",
+      "sabnzbd_behavior": "`extract_and_remove_yencryption` validates line 2 starts with `=yencryption` for single-part articles and rejects placement anywhere else.",
+      "nzbget_behavior": "`ExtractAndRemoveYEncryption` validates line 2 is `=yencryption` for single-part articles and rejects duplicate or misplaced lines.",
+      "accepted_forms": [
+        "Physical line 2 immediately after =ybegin line 1 for single-part yEnc"
+      ],
+      "rejected_forms": [
+        "=yencryption before =ybegin",
+        "=yencryption at line 3+ in single-part articles",
+        "Duplicate =yencryption lines anywhere in article"
+      ],
+      "security_impact": "Ensures deterministic stream parsing without backtracking or scanning untrusted data lines for control commands.",
+      "normative_disposition": "normative_wire_standard",
+      "spec_target": "yEnc Body Encryption Standard Section 6",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::extract_and_remove_yencryption",
+        "penne": "pesto::crypto::adapter::extract_and_remove_yencryption",
+        "sabnzbd": "sabnzbd.encryption.extract_and_remove_yencryption",
+        "nzbget": "YEncDecryptor::ExtractAndRemoveYEncryption"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_encryption.py -k test_extract_and_remove_yencryption -v",
+        "(cd pesto && cargo test -p pesto crypto::tests::test_extract_and_remove_yencryption)"
+      ]
+    },
+    {
+      "id": "BEH-MPLAC-01",
+      "category": "header_placement",
+      "name": "Multipart Article Header Placement at Physical Line 3",
+      "current_spec_wording": "Does not distinguish multipart placement from single-part placement.",
+      "pesto_behavior": "Emits `=yencryption` immediately after `=ypart` on physical line 3 (lineIndex = 3) for multipart articles.",
+      "penne_behavior": "`extract_and_remove_yencryption` enforces line 1 `=ybegin`, line 2 `=ypart`, and line 3 `=yencryption` for multipart articles.",
+      "sabnzbd_behavior": "`extract_and_remove_yencryption` validates line 1 is `=ybegin` (with `part=`), line 2 is `=ypart`, and line 3 is `=yencryption`.",
+      "nzbget_behavior": "`ExtractAndRemoveYEncryption` validates multipart sequence line 1 `=ybegin`, line 2 `=ypart`, line 3 `=yencryption`.",
+      "accepted_forms": [
+        "Physical line 3 immediately after =ypart line 2 for multipart yEnc"
+      ],
+      "rejected_forms": [
+        "=yencryption between =ybegin and =ypart (line 2 in multipart)",
+        "=yencryption at line 4+ in multipart articles",
+        "=ypart missing when part= declared in =ybegin"
+      ],
+      "security_impact": "Preserves standard yEnc multipart header grouping while maintaining deterministic control line indexing.",
+      "normative_disposition": "normative_wire_standard",
+      "spec_target": "yEnc Body Encryption Standard Section 6",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::extract_and_remove_yencryption",
+        "penne": "pesto::crypto::adapter::extract_and_remove_yencryption",
+        "sabnzbd": "sabnzbd.encryption.extract_and_remove_yencryption",
+        "nzbget": "YEncDecryptor::ExtractAndRemoveYEncryption"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_encryption.py -k test_extract_and_remove_yencryption_multipart -v",
+        "(cd pesto && cargo test -p pesto crypto::tests::test_extract_and_remove_multipart)"
+      ]
+    },
+    {
+      "id": "BEH-CRC-01",
+      "category": "crc_normalization",
+      "name": "Ciphertext Wire CRC Verification and Downstream Plaintext CRC Clearing",
+      "current_spec_wording": "States CRC is calculated during yEnc encoding; does not specify that wire CRCs cover ciphertext and must be stripped before downstream PAR2/assembly.",
+      "pesto_behavior": "Calculates standard yEnc pcrc32 / crc32 over ciphertext data lines during wire encoding.",
+      "penne_behavior": "Verifies wire CRC against ciphertext prior to AEAD decryption. After Poly1305 authentication succeeds, sets `part_crc32 = None` and `file_crc32 = None` on plaintext handoff.",
+      "sabnzbd_behavior": "Verifies yEnc wire CRC against ciphertext in `sabctools.decode_yenc`, verifies AEAD tag, then sets `article.crc32 = None` to prevent assembler discarding authenticated plaintext.",
+      "nzbget_behavior": "Decodes yEnc ciphertext and verifies wire CRC in `Decoder.cpp`, verifies AEAD tag in `YEncDecryptor.cpp`, and marks article CRC verified/cleared for downstream `ArticleWriter`.",
+      "accepted_forms": [
+        "Valid wire CRC matching ciphertext followed by AEAD tag authentication"
+      ],
+      "rejected_forms": [
+        "Wire CRC mismatch on ciphertext (treated as corrupt article)",
+        "Passing ciphertext wire CRC to plaintext PAR2 checkers as expected plaintext CRC"
+      ],
+      "security_impact": "Ensures transit corruptions are caught early via CRC while preventing valid authenticated plaintexts from failing downstream assembly.",
+      "normative_disposition": "normative_wire_standard",
+      "spec_target": "yEnc Body Encryption Standard Section 7 & 9",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::UploadEncryptionAdapter::encode_article",
+        "penne": "pesto::crypto::adapter::DownloadDecryptionAdapter::decode_article",
+        "sabnzbd": "sabnzbd.downloader.DecoderThread / sabnzbd.decoder.decode_yenc",
+        "nzbget": "Decoder::Decode / ArticleDownloader::DownloadArticle"
+      },
+      "validation_commands": [
+        "pytest tests/test_cross_client_compat.py -k test_encrypted_par2_verification_and_repair -v",
+        "pytest sabnzbd/tests/test_decoder.py -v"
+      ]
+    },
+    {
+      "id": "BEH-ERR-01",
+      "category": "error_handling",
+      "name": "Two-Tier Error Classification: Retriable Provider Corruption vs Fatal Structural Rejection",
+      "current_spec_wording": "Classifies failures by input source: pre-fetch NZB metadata or local configuration is structural; fetched article bytes are provider corruption.",
+      "pesto_behavior": "Fails synchronously on invalid input or encoding setup with zero output emitted.",
+      "penne_behavior": "Maps Poly1305 authentication failures and wire CRC mismatches to retriable server errors (triggering backup NNTP failover). Maps missing `segmentIndex` or invalid XML to fatal download errors.",
+      "sabnzbd_behavior": "Raises `BadArticleCrypto` (mapped to `ARTICLE_CORRUPT`) on AEAD authentication failure to trigger multi-server failover. Structural errors fail the NZB immediately.",
+      "nzbget_behavior": "Sets `ArticleStatus::FAILED` on AEAD / CRC failure (triggering backup news server retry). Missing NZB identity or malformed syntax fails the job immediately.",
+      "accepted_forms": [
+        "Clean article passing all structural and cryptographic checks"
+      ],
+      "rejected_forms": [
+        "Corrupted ciphertext or tampered tag: retriable provider corruption",
+        "Malformed, missing, misplaced, or duplicate fetched control lines: retriable provider corruption",
+        "Missing segmentIndex, malformed XML, duplicate index, or missing password: fatal structural rejection"
+      ],
+      "security_impact": "Maximizes download resilience against transient NNTP server corruption while preventing unrecoverable infinite retry loops on structural errors.",
+      "normative_disposition": "implementation_boundary",
+      "spec_target": "yEnc Body Encryption Standard Section 7 / yEnc Control Lines Encryption Standard Section 7",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::DownloadDecryptionAdapter::decode_article",
+        "penne": "penne::download::DownloadTask::process_article",
+        "sabnzbd": "sabnzbd.downloader.DecoderThread / sabnzbd.downloader.Downloader",
+        "nzbget": "ArticleDownloader::DownloadArticle / ArticleDownloader::ProcessArticle"
+      },
+      "validation_commands": [
+        "pytest tests/test_cross_client_compat.py -k test_multi_server_provider_failover_on_corruption -v",
+        "pytest sabnzbd/tests/test_downloader.py -v"
+      ]
+    },
+    {
+      "id": "BEH-ZERO-01",
+      "category": "error_handling",
+      "name": "Strict Zero-Output Guarantee on Cryptographic and Structural Failure",
+      "current_spec_wording": "Authentication failure results in complete decryption failure with no partial data output.",
+      "pesto_behavior": "Guarantees no encoded article is emitted on key/nonce derivation or encryption failure.",
+      "penne_behavior": "Aborts immediately on authentication failure; releases 0 bytes of plaintext or partial buffer to assembler or disk.",
+      "sabnzbd_behavior": "On any decryption or authentication error, discards buffer (`article.data = b\"\"`) and releases 0 bytes downstream.",
+      "nzbget_behavior": "Discards cache buffer on AEAD tag verification failure; writes 0 bytes to disk.",
+      "accepted_forms": [
+        "Zero bytes written to target destination or cache on any authentication failure"
+      ],
+      "rejected_forms": [
+        "Partial plaintext release",
+        "Leaking ciphertext into plaintext target files on decrypt failure"
+      ],
+      "security_impact": "Cryptographic integrity guarantee: unauthenticated plaintext is never exposed to users or downstream parsers.",
+      "normative_disposition": "security_invariant",
+      "spec_target": "yEnc Body Encryption Standard Section 5 & 7 / yEnc Control Lines Encryption Standard Section 5 & 7",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::adapter::DownloadDecryptionAdapter::decode_article",
+        "penne": "pesto::crypto::adapter::DownloadDecryptionAdapter::decode_article",
+        "sabnzbd": "sabnzbd.encryption.DecryptionAdapter.decrypt_article / sabnzbd.downloader.DecoderThread",
+        "nzbget": "YEncDecryptor::DecryptArticle / ArticleDownloader::ProcessArticle"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_encryption.py -k test_auth_failure_zero_output -v",
+        "python3 scripts/test_conformance_vectors.py"
+      ]
+    },
+    {
+      "id": "BEH-ID-01",
+      "category": "segment_identity",
+      "name": "Explicit NZB segmentIndex Attribute Validation and Derivation Anchoring",
+      "current_spec_wording": "Defines segmentIndex range 1..=4294967295, shortest decimal representation, no leading zeroes.",
+      "pesto_behavior": "Emits monotonic 1-based segmentIndex attributes across all segments in the NZB session.",
+      "penne_behavior": "Validates segmentIndex syntax (1..=4294967295, shortest decimal, no leading zeroes), rejects duplicates, and keys nonce derivation strictly by segmentIndex.",
+      "sabnzbd_behavior": "Parses and validates segmentIndex in `nzbparser.py`, stores on `Article.segment_index`, rejects duplicates, and derives nonces without file arithmetic.",
+      "nzbget_behavior": "Parses segmentIndex in `NzbFile.cpp`, stores on `ArticleInfo::m_segmentIndex`, rejects duplicates, and derives nonces strictly from explicit index.",
+      "accepted_forms": [
+        "Unqualified attribute segmentIndex=\"1\" through segmentIndex=\"4294967295\" with no leading zeroes or whitespace"
+      ],
+      "rejected_forms": [
+        "segmentIndex=\"0\"",
+        "segmentIndex=\"01\" (leading zero)",
+        "segmentIndex=\"+1\" / \"-1\"",
+        "segmentIndex=\"4294967296\" (u32 overflow)",
+        "Duplicate segmentIndex values in same NZB",
+        "Missing segmentIndex when yenc_encrypted is true"
+      ],
+      "security_impact": "Prevents nonce reuse across segments and ensures deterministic decryption regardless of NNTP fetch order or XML rearrangement.",
+      "normative_disposition": "normative_nzb_standard",
+      "spec_target": "yEnc Body Encryption Standard Section 8 / yEnc Control Lines Encryption Standard Section 8",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-06",
+      "source_symbols": {
+        "pesto": "pesto::nzb::writer::write_nzb / pesto::poster::SegmentIdentity",
+        "penne": "penne::nzb::parse_nzb / pesto::nzb::reader::ParsedNzb",
+        "sabnzbd": "sabnzbd.nzbparser.parse_nzb_xml / sabnzbd.nzb.article.Article.segment_index",
+        "nzbget": "NzbFile::ReadNzbFile / ArticleInfo::m_segmentIndex"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_nzbparser.py -k test_segment_index -v",
+        "pytest tests/test_cross_client_compat.py -k test_nzb_explicit_identity -v",
+        "python3 scripts/test_conformance_vectors.py"
+      ]
+    },
+    {
+      "id": "BEH-DECOUP-01",
+      "category": "segment_identity",
+      "name": "Complete NNTP Presentation Metadata Decoupling",
+      "current_spec_wording": "<file subject>, NNTP Subject header, XML file order, and segment order have no cryptographic meaning.",
+      "pesto_behavior": "Can randomize or obfuscate NNTP subjects and file tags without altering explicit segmentIndex derivation.",
+      "penne_behavior": "Derives cryptographic parameters solely from NZB password and segmentIndex; completely ignores NNTP Subject headers.",
+      "sabnzbd_behavior": "Ignores NNTP subjects for decryption; anchors filename reconstruction to NZB file metadata or deobfuscator.",
+      "nzbget_behavior": "Ignores NNTP subjects for decryption; anchors cryptographic pipeline strictly to NzbFile explicit indices.",
+      "accepted_forms": [
+        "Random / obfuscated NNTP Subject headers and filenames"
+      ],
+      "rejected_forms": [
+        "Attempting to derive segment numbering from NNTP subject regex or file sequence"
+      ],
+      "security_impact": "Eliminates subject parsing vulnerabilities, allows total Usenet metadata obfuscation, and prevents spoofing attacks via subject manipulation.",
+      "normative_disposition": "security_invariant",
+      "spec_target": "yEnc Body Encryption Standard Section 7 & 8 / yEnc Control Lines Encryption Standard Section 7 & 8",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::poster::Poster",
+        "penne": "penne::download::DownloadTask",
+        "sabnzbd": "sabnzbd.downloader.DecoderThread",
+        "nzbget": "ArticleDownloader::DownloadArticle"
+      },
+      "validation_commands": [
+        "pytest tests/test_cross_client_compat.py -k test_obfuscated_multifile_par2_release -v"
+      ]
+    },
+    {
+      "id": "BEH-LINE-01",
+      "category": "line_endings_and_counting",
+      "name": "Dot-Unstuffed Physical Line Counting and CRLF/Bare-LF Normalization",
+      "current_spec_wording": "Line counting on physical lines 1..N. Line endings CRLF (\r\n). Does not explicitly document NNTP dot-unstuffing boundary.",
+      "pesto_behavior": "Emits CRLF (\r\n) on all lines. Line count is physical line count.",
+      "penne_behavior": "Applies decryption to dot-unstuffed article body. Splits lines preserving endings, strips trailing \r, increments lineIndex per physical line, accepts CRLF and bare LF.",
+      "sabnzbd_behavior": "Operates on dot-unstuffed body from NNTP layer. Splits with `keepends=True`, handles `\r\n` and bare `\n` uniformly, increments lineIndex per line.",
+      "nzbget_behavior": "Operates on dot-unstuffed body. Parses lines scanning for `\n` with optional `\r`, increments lineIndex per physical line.",
+      "accepted_forms": [
+        "CRLF (\r\n) line endings (canonical)",
+        "Bare LF (\n) line endings (accepted defensively)"
+      ],
+      "rejected_forms": [
+        "Evaluating lineIndex prior to NNTP dot-unstuffing"
+      ],
+      "security_impact": "Prevents line counter desynchronization between encoder and decoder when articles pass through NNTP transport servers.",
+      "normative_disposition": "normative_wire_standard",
+      "spec_target": "yEnc Control Lines Encryption Standard Section 2 & 5",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::crypto::control::split_lines_preserving_endings",
+        "penne": "pesto::crypto::control::split_lines_preserving_endings",
+        "sabnzbd": "sabnzbd.encryption.ff1_decrypt / sabnzbd.decoder.decode_yenc",
+        "nzbget": "YEncDecryptor::DecryptArticle / Decoder::Decode"
+      },
+      "validation_commands": [
+        "pytest sabnzbd/tests/test_encryption.py -k test_line_endings -v",
+        "(cd pesto && cargo test -p pesto crypto::tests::test_control_line_endings)"
+      ]
+    },
+    {
+      "id": "BEH-MEM-01",
+      "category": "bounded_memory",
+      "name": "Article-Bounded Streaming Memory Execution Model",
+      "current_spec_wording": "Requires O(article_size) working memory and prohibits whole-file or whole-release accumulation; observed article sizes are non-normative guidance.",
+      "pesto_behavior": "Streams chunks from disk/file, allocating buffers proportional to article size (~768 KiB), constant memory O(article_size).",
+      "penne_behavior": "Downloads and decrypts article buffers in memory up to max article size (~8 MiB), writes decrypted plaintext directly to target slice.",
+      "sabnzbd_behavior": "Processes articles in worker threads with article-sized memory buffers (~8 MiB limit). Rejects oversized articles.",
+      "nzbget_behavior": "Allocates article buffer in memory cache (~4 MiB connection limit) and writes direct to disk.",
+      "accepted_forms": [
+        "Working memory proportional to one article, O(article_size)",
+        "Typical configured article sizes from 128 KiB through 4 MiB"
+      ],
+      "rejected_forms": [
+        "Accumulating a complete multipart file or release in memory",
+        "Articles above a client's configured local safety limit, which may be up to 8 MiB in the reference implementations"
+      ],
+      "security_impact": "Protects download clients against memory exhaustion / denial of service attacks from maliciously crafted huge articles.",
+      "normative_disposition": "implementation_boundary",
+      "spec_target": "yEnc Body Encryption Standard Section 9 (Interoperability/Implementation Notes)",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::poster::Poster",
+        "penne": "penne::download::DownloadTask",
+        "sabnzbd": "sabnzbd.downloader.DecoderThread",
+        "nzbget": "ArticleDownloader::DownloadArticle"
+      },
+      "validation_commands": [
+        "(cd pesto && cargo test -p penne quickcheck)",
+        "pytest sabnzbd/tests/test_downloader.py -v"
+      ]
+    },
+    {
+      "id": "BEH-UNENC-01",
+      "category": "plain_yenc_compatibility",
+      "name": "Unmodified Plain yEnc Fast-Path Compatibility",
+      "current_spec_wording": "Mentions compatibility with existing yEnc parsers.",
+      "pesto_behavior": "Emits standard yEnc when encryption flags are not supplied.",
+      "penne_behavior": "Bypasses crypto layer completely when `meta.yenc_encrypted` is false; decodes standard yEnc with native performance.",
+      "sabnzbd_behavior": "Dispatches to native C extension `sabctools.decode_yenc` directly for unencrypted jobs with zero crypto overhead.",
+      "nzbget_behavior": "Bypasses `YEncDecryptor` and invokes standard `Decoder::Decode` directly when `m_yencEncryptedMeta` is false.",
+      "accepted_forms": [
+        "Unencrypted standard yEnc 1.3 single-part and multipart articles"
+      ],
+      "rejected_forms": [
+        "Attempting transport decryption on unencrypted articles"
+      ],
+      "security_impact": "Ensures download clients remain 100% backward-compatible with the global Usenet archive of unencrypted releases.",
+      "normative_disposition": "compatibility_tolerance",
+      "spec_target": "yEnc Body Encryption Standard Section 9 / README.md",
+      "plan_owner": "18-02",
+      "requirement": "SPEC-07",
+      "source_symbols": {
+        "pesto": "pesto::yenc::encode_part",
+        "penne": "penne::download::DownloadTask",
+        "sabnzbd": "sabnzbd.downloader.DecoderThread / sabctools.decode_yenc",
+        "nzbget": "ArticleDownloader::DownloadArticle / Decoder::Decode"
+      },
+      "validation_commands": [
+        "pytest tests/test_cross_client_compat.py -k test_unencrypted_compatibility_matrix -v"
+      ]
+    }
+  ],
+  "validation_commands": [
+    "python3 scripts/test_standards_v1.py",
+    "python3 scripts/test_conformance_vectors.py",
+    "pytest tests/test_cross_client_compat.py -v",
+    "pytest sabnzbd/tests/test_encryption.py -v",
+    "pytest sabnzbd/tests/test_nzbparser.py -v",
+    "pytest sabnzbd/tests/test_downloader.py -v",
+    "(cd pesto && cargo test)",
+    "(cd pesto/crates/penne && cargo test)"
+  ]
+}

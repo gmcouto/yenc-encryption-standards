@@ -138,11 +138,11 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 The downloader reads the NZB metadata before requesting an article. A compliant encrypted NZB MUST contain both `<meta type="password">` and `<meta type="yenc_encrypted">true</meta>`. A password without the provenance marker remains an archive password and MUST NOT enable transport decryption. The `segmentIndex` attribute is the only cryptographic identity input. Subjects, NNTP headers, post order, and XML order have no cryptographic meaning.
 
-For a single-part block, `=yencryption` is physical line 2, immediately after `=ybegin`. For a multipart block, `=ypart` remains line 2 and `=yencryption` is line 3. The header has exactly four tokens in this order: `=yencryption`, `cipher=XChaCha20-Poly1305`, `salt=<32 lowercase hex characters>`, and `tag=<32 lowercase hex characters>`.
+For a single-part block, `=yencryption` is physical line 2, immediately after `=ybegin`. For a multipart block, `=ypart` remains line 2 and `=yencryption` is line 3. The canonical wire line is `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>`. Each placeholder is replaced by exactly 32 lowercase hexadecimal characters. The line uses one ASCII space between its four tokens and has no leading or trailing whitespace. Parsers reject any other field order, spacing, field count, cipher name, character set, or value length.
 
-When both standards are used, the 16 raw bytes prepended to Line 1 and the 32 hexadecimal salt characters in `=yencryption` MUST represent the same bytes. A mismatch is a structural metadata failure. Wire CRC values cover ciphertext and are checked before AEAD decryption. After authentication succeeds, decoders clear those CRC values before handing plaintext to assembly or PAR2.
+When both standards are used, the 16 raw bytes prepended to Line 1 and the 32 hexadecimal salt characters in `=yencryption` MUST represent the same bytes. Wire CRC values cover ciphertext and are checked before AEAD decryption. After authentication succeeds, decoders clear those CRC values before handing plaintext to assembly or PAR2.
 
-Structural failures, including missing provenance, invalid identity, malformed headers, misplaced headers, unsupported ciphers, missing passwords, and salt mismatch, are fatal and MUST NOT trigger provider failover. CRC mismatch, truncation, and AEAD authentication failure are provider-corruption failures. They permit retry on another provider, while still releasing zero plaintext and zero ciphertext as final output. Processing is bounded to one article or segment.
+Failures in NZB metadata or local configuration before article retrieval are structural. Missing provenance, malformed XML, an invalid or duplicate `segmentIndex`, a missing password, or a locally unsupported encryption mode is fatal and MUST NOT trigger provider failover. Failures in fetched article bytes after those checks pass are provider corruption. This includes malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; salt mismatch; CRC mismatch; truncation; and AEAD authentication failure. Clients retry provider corruption on eligible alternate providers. Both tiers release zero plaintext and zero ciphertext as final output.
 
 ## Wire Specifications and Invariants
 
@@ -182,26 +182,19 @@ CRC Handling: Wire CRC in =yend covers ciphertext; verified then cleared (crc32=
 
 ### Error Handling and Security Invariants
 
-### Two-Tier Error Model
-1. **Fatal Structural Failures (METADATA_VALIDATION)**:
-   - Missing or invalid `segmentIndex` attribute.
-   - Duplicate `segmentIndex` values within an NZB.
-   - Malformed `=yencryption` grammar, wrong token count, uppercase hex, or misplaced position.
-   - Salt mismatch in combined mode.
-   - Resolution: Abort download immediately; do not retry or query alternate Usenet providers.
+### Two-tier error model
 
-2. **Retriable Provider Corruption (PROVIDER_FAILOVER)**:
-   - AEAD Poly1305 authentication failure.
-   - Truncated ciphertext or wire CRC mismatch.
-   - Resolution: Trigger provider failover or backup server retry; article may be corrupted in transit.
+1. Fatal structural failures (`METADATA_VALIDATION`) arise from NZB metadata or local configuration before article retrieval. Examples are missing provenance, malformed XML, missing or invalid `segmentIndex`, duplicate indices, a missing password, or a locally unsupported encryption mode. The client aborts the job without querying alternate providers.
 
-### Zero-Output Guarantee
+2. Retriable provider corruption (`PROVIDER_FAILOVER`) arises from fetched article bytes after structural validation succeeds. Examples are malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; dual-salt mismatch; failed control-line restoration; wire CRC mismatch; truncation; and Poly1305 authentication failure. The client tries eligible alternate providers and applies normal repair policy if they all fail.
 
-Under no circumstances may unauthenticated or partially decrypted plaintext data be written to disk, returned to calling routines, or forwarded to downstream post-processors. On any failure, all working buffers MUST be zeroed and discarded.
+### Zero-output guarantee
 
-### Bounded Memory Processing
+A client MUST NOT release or write unauthenticated plaintext or ciphertext to a target file, a cache visible to downstream stages, or a subsequent pipeline stage. It MAY retain one article in working memory until validation completes and MUST discard that working data on failure.
 
-Implementations process articles in streaming chunks (~750KB to 2MB) without accumulating full multi-part files in memory. Control line parsing and decryption operate per-line with minimal overhead.
+### Bounded memory processing
+
+An implementation MAY buffer one complete article because AEAD authentication must finish before plaintext release. Working memory MUST remain O(article_size) and MUST NOT grow with a multipart file or release. Reference implementations accept typical article sizes from 128 KiB through 4 MiB and enforce local safety limits up to 8 MiB. Those values are implementation guidance, not wire limits. A receiver MAY reject an article above its configured limit before allocation or decryption.
 
 ## Status
 
