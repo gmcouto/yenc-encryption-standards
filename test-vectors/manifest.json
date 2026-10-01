@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
-  "standard_version": "1.0",
-  "generated_at": "2026-09-27T22:00:00Z",
-  "description": "Deterministic test vectors for yEnc Body & Control Lines Encryption Standards v1.0",
+  "standard_version": "1.1",
+  "generated_at": "2026-10-01T04:55:00Z",
+  "description": "Deterministic test vectors for yEnc Body & Control Lines Encryption Standards v1.1",
   "files": {
     "argon2id.json": {
       "sha256": "66caee112050e9f1c46144ada63f5132258b102c8b356f1ac54428d0fa31bc3c",
@@ -17,27 +17,27 @@
       "requirement": "VEC-02"
     },
     "body_encryption.json": {
-      "sha256": "03b5592a0c1802adc76797f9c08aa30af361c356eeffe6e22ec2cbb65e5db604",
+      "sha256": "0fe31b804367936c9dc91c1918eeda5dcf91f46095d5c147ede2cda132d38553",
       "vector_count": 8,
       "description": "RFC 8439 Extended XChaCha20-Poly1305 body encryption round-trip vectors (VEC-03)",
       "requirement": "VEC-03"
     },
     "control_line_encryption.json": {
-      "sha256": "0729929a489ae687e9a9f91d9bb2ed14c3b61c0566dd771f5fd2839e52b7d87a",
+      "sha256": "69d7ca0a110145331937bf46602710af221b9bf7d4743ecefc1e6fd2bceb07a0",
       "vector_count": 8,
       "description": "NIST SP 800-38G FF1 control-line encryption round-trip vectors (VEC-04)",
       "requirement": "VEC-04"
     },
     "malformed_inputs.json": {
-      "sha256": "2882409816c3dc6e6eec54e2f128146e2e9db606fbf8e5c09d8c77962ba90160",
-      "vector_count": 31,
+      "sha256": "7577d6bf0dff8fe759a030b334a71d4dcfe75ba19745a769b1881ce77560e5ce",
+      "vector_count": 39,
       "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors (VEC-05)",
       "requirement": "VEC-05"
     },
     "nzb_segment_identity.json": {
-      "sha256": "6ee81c24dce35f56f6bc6485c44917927fba90f9703fb14f5e3dadf1495d519d",
+      "sha256": "4d7d8a60146542fe7ff2de9bfe3a390c6f3904fe0b659ced6b30e8660f26aaa9",
       "vector_count": 33,
-      "description": "Canonical NZB explicit segmentIndex identity, validation, and tampering vectors (VEC-06)",
+      "description": "Clean NZB 1.1 self-describing article identity and compatibility vectors (VEC-06)",
       "requirement": "VEC-06"
     }
   }
