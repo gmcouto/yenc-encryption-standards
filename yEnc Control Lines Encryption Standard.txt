@@ -1,20 +1,33 @@
 SPECIFICATION: yEnc Control Lines Encryption Standard
-Version: 1.0
-Date: 2026-09-27
+Version: 1.1
+Date: 2026-10-01
 Author: Independent Specification
 
-Status: Frozen Wire Contract (v1.0)
+Status: Experimental Wire Contract (v1.1)
 Category: Standards Track
 
 Abstract:
 This document defines a reversible, format-preserving encryption
 scheme for yEnc control lines in yEnc-encoded binary blocks used in
 Usenet transfers. The scheme maintains exact length for lines 2..N,
-prepends random salt on line 1, and preserves the printable yEnc
-character range required for Usenet transmission.
+prepends an article bootstrap prefix on line 1 containing salt and
+segmentIndex, and preserves the printable yEnc character range
+required for Usenet transmission.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.1 (2026-10-01):
+- Specified 20-byte article bootstrap prefix prepended to Line 1:
+  16-byte raw Alphabet salt followed by 4-byte big-endian uint32 segmentIndex.
+- Updated Line 1 expansion to exactly 20 bytes; overall yEnc block length
+  increases by exactly 20 bytes; minimum Line 1 length is 22 bytes.
+- Established dual-bootstrap cross-header agreement requiring byte-for-byte
+  salt equality and value-for-value segmentIndex equality between Line 1 and
+  =yencryption, classifying mismatches as PROVIDER_FAILOVER.
+- Decoupled segment identity from NZB XML schema, removing segmentIndex
+  attributes from Section 8 and standardizing clean NZB 1.1 segment elements.
+- Synchronized with 5-token canonical =yencryption header grammar.
 
 Version 1.0 (2026-09-27):
 - Synchronized shared wire semantics with yEnc Body Encryption Standard.
@@ -86,18 +99,19 @@ maintaining:
   - yEnc-compatible printable characters
   - deterministic reconstruction of the original yEnc structure
   - exact length preservation for lines 2..N, with the first encrypted
-    control line (lineIndex=1) expanding by exactly 16 bytes due to
-    prepended random salt
+    control line (lineIndex=1) expanding by exactly 20 bytes due to
+    the prepended 20-byte article bootstrap (16-byte raw salt from
+    the 253-byte Alphabet and 4-byte big-endian uint32 segmentIndex)
   - data lines remain completely untouched in length and byte content
   - format-preserving output suitable for Usenet transmission
   - no additional yEnc encoding step required after encryption
-  - full compatibility and dual-salt agreement with body encryption
+  - full compatibility and dual-bootstrap agreement with body encryption
 
 It is intended for use in single or multipart binary uploads or
 segment encryption, where yEnc control lines are encrypted while
 preserving the overall yEnc structure and leaving data lines
-unmodified. The overall yEnc block length increases by exactly 16 bytes
-due to the salt prepended to the first line.
+unmodified. The overall yEnc block length increases by exactly 20 bytes
+due to the bootstrap prefix prepended to the first line.
 
 ----------------------------------------------------------------------
 2. Definitions
@@ -138,10 +152,11 @@ due to the salt prepended to the first line.
       - For I >= 11:                        b = I + 3
 
   segmentIndex:
-    An unsigned 32-bit integer in the range 1..=4294967295 carried
-    explicitly as the segmentIndex attribute on each NZB <segment>
-    element. It provides unique tweak values for every segment across
-    the upload session without file-boundary arithmetic.
+    An unsigned 32-bit integer in the range 1..=4294967295 encoded
+    in the article bootstrap (bytes 16..19 of Line 1 prefix and the
+    index parameter of =yencryption). It provides unique tweak values
+    for every segment across the upload session without file-boundary
+    arithmetic or NZB XML dependencies.
 
   lineIndex:
     A 32-bit unsigned integer (1 <= lineIndex <= N) representing the
@@ -161,17 +176,17 @@ due to the salt prepended to the first line.
     underlying yEnc articles are wire-encrypted and instructs download
     clients to dispatch them to the transport decryption engine.
 
-  Dual-Salt Agreement:
+  Dual-Bootstrap Agreement:
     When control line encryption and body encryption are combined,
-    the 16-byte raw salt prepended to Line 1 and the 16-byte salt
-    encoded in the =yencryption header MUST be byte-for-byte identical.
+    the 16-byte raw salt and 4-byte uint32_be segmentIndex from Line 1
+    MUST match the salt and index parameters encoded in the =yencryption
+    header byte-for-byte and value-for-value.
 
 ----------------------------------------------------------------------
 3. Processing Procedure
 
 Input: Complete yEnc block with any line endings (LF or CRLF),
-password, and segmentIndex obtained from the corresponding NZB
-<segment> record.
+password, and segmentIndex assigned to this segment.
 
 yEnc Structure Pattern:
 - Header line(s): "=ybegin ...", "=ypart ..." (if multipart), "=yencryption ..." (if body encrypted)
@@ -186,10 +201,12 @@ When control line encryption is combined with body encryption:
   at physical line 3 immediately after =ypart.
 - The header MUST conform to the Canonical =yencryption Grammar in Section 4
   of the yEnc Body Encryption Standard. Its wire form is:
-  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>
-  Each placeholder denotes exactly 32 lowercase hexadecimal characters and
-  does not appear literally on the wire. There is exactly one SP between the
-  four tokens and no leading or trailing whitespace.
+  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
+  Each placeholder denotes lowercase hexadecimal characters and does not
+  appear literally on the wire: salt is exactly 32 hex chars, index is
+  exactly 8 hex chars (uint32_be in range 00000001..ffffffff), and tag is
+  exactly 32 hex chars. Total line length is exactly 128 characters excluding CRLF.
+  There is exactly one SP between the five tokens and no leading or trailing whitespace.
 - Control line encryption processes the yEnc block after the =yencryption
   line has been inserted.
 
@@ -202,10 +219,11 @@ Encryption Steps:
    a. For lines beginning with "=y":
       - Extract line content (excluding terminators).
       - Encrypt line content using FF1 with lineIndex-specific tweak.
-      - For lineIndex=1 (the first physical line): prepend the 16-byte salt to
-        the ciphertext.
+      - For lineIndex=1 (the first physical line): prepend the 20-byte
+        article bootstrap (16-byte raw salt from Alphabet followed by
+        4-byte uint32_be segmentIndex) to the ciphertext.
       - Replace original line content with encrypted content (including
-        prepended salt for line 1).
+        prepended 20-byte bootstrap for line 1).
    b. For lines not beginning with "=y":
       - Leave data line content untouched.
    c. Increment lineIndex by 1 for the next 1-based physical line (whether
@@ -228,8 +246,8 @@ Parameters:
     threads=4, 256-bit output)
   - Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" ||
     uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
-    where segmentIndex is the unsigned 32-bit integer matching the
-    NZB segmentIndex attribute.
+    where segmentIndex is the unsigned 32-bit integer in range 1..=4294967295
+    assigned to the segment.
 
 Procedure (applied to each yEnc control line individually):
 
@@ -246,24 +264,23 @@ Procedure (applied to each yEnc control line individually):
      The message input to HMAC-SHA256 is exactly 26 bytes:
        - Bytes 0..17 (18 bytes): ASCII prefix "yenc-control tweak"
        - Bytes 18..21 (4 bytes): uint32_be(segmentIndex) (4-byte
-         unsigned integer in big-endian network byte order, matching
-         the NZB segmentIndex attribute)
+         unsigned integer in big-endian network byte order)
        - Bytes 22..25 (4 bytes): uint32_be(lineIndex) (4-byte
          unsigned integer in big-endian network byte order)
      The tweak is the first 8 bytes of the resulting HMAC-SHA256
      digest, passed as the FF1 tweak input.
   e. Encrypt the line content using FF1 over the 253-character Alphabet.
-  f. For the first line (lineIndex=1): prepend the 16-byte salt to
+  f. For the first line (lineIndex=1): prepend the 20-byte article bootstrap
+     (16-byte raw salt from Alphabet || 4-byte uint32_be(segmentIndex)) to
      the encrypted content.
   g. Replace the original line content with the encrypted content
-     (including salt for first line).
+     (including 20-byte bootstrap prefix for first line).
 
 ----------------------------------------------------------------------
-5. Decryption Algorithm
+5. Decryption and Error Handling
 
 Input: yEnc block with encrypted control lines (total physical lines N),
-password from NZB metadata, and segmentIndex obtained from the
-corresponding NZB segment element.
+password from NZB metadata.
 
 Decryption Steps:
 
@@ -271,29 +288,37 @@ Decryption Steps:
    present in the NZB <head>.
 2. Split the dot-unstuffed yEnc block into individual lines, preserving
    line endings (accepting CRLF and bare LF).
-3. Process line 1 (lineIndex=1) to extract salt:
+3. Process line 1 (lineIndex=1) to extract article bootstrap:
    a. Extract line 1 content (excluding line terminators).
-   b. Extract 16-byte raw salt from the first 16 bytes of line 1.
-   c. Remove salt prefix from line 1 content (remaining bytes are
-      the FF1 ciphertext).
-   d. Derive masterKey, encKey, and tweak using extracted salt,
-      segmentIndex obtained from the NZB segment element, and lineIndex=1.
-   e. Apply FF1 decryption over the 253-character Alphabet.
-   f. Verify decrypted content starts with "=ybegin". If it does not,
+   b. Verify line 1 contains at least 22 bytes (20-byte bootstrap + minimum
+      2-byte FF1 ciphertext). If shorter, reject as LINE_TRUNCATED.
+   c. Extract 16-byte raw salt from bytes 0..15; assert no forbidden bytes
+      (0x00, 0x0A, 0x0D).
+   d. Extract 4-byte unsigned big-endian segmentIndex from bytes 16..19
+      (uint32_be); assert segmentIndex is in range 1..=4294967295 (reject
+      zero as ZERO_SEGMENT_INDEX).
+   e. Remove 20-byte bootstrap prefix (bytes 20.. are the FF1 ciphertext).
+   f. Derive masterKey, encKey, and tweak using extracted salt, extracted
+      segmentIndex, and lineIndex=1.
+   g. Apply FF1 decryption over the 253-character Alphabet.
+   h. Verify decrypted content starts with "=ybegin". If it does not,
       classify error per two-tier error rules.
-   g. Replace line 1 encrypted content with decrypted content.
+   i. Replace line 1 encrypted content with decrypted content.
 4. Process subsequent header lines (lineIndex = 2, 3, ...):
    a. For each physical line before data lines (lineIndex=2, 3, ...):
       - Extract line content (excluding line terminators).
-      - Derive tweak using extracted salt, segmentIndex from NZB, and
+      - Derive tweak using extracted salt, extracted segmentIndex, and
         current lineIndex.
       - Apply FF1 decryption over the 253-character Alphabet.
       - If decrypted content starts with "=y":
         * If decrypted line starts with "=yencryption":
-          - Validate the canonical four-token grammar from the body standard.
-          - Assert dual-salt agreement: decoded header salt must match
-            extracted Line 1 raw salt.
+          - Validate the canonical five-token grammar from the body standard:
+            =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
+          - Assert dual-bootstrap agreement: decoded header salt MUST match
+            Line 1 raw salt byte-for-byte, AND decoded header index MUST match
+            Line 1 segmentIndex value-for-value.
           - Verify line placement (line 2 for single-part, line 3 for multipart).
+          - If unequal, fail closed immediately with PROVIDER_FAILOVER.
         * Replace line content with decrypted content.
         * Continue to next line (increment lineIndex by 1).
       - If decrypted content does not start with "=y":
@@ -305,7 +330,7 @@ Decryption Steps:
      physical line.
 6. Process the final line (footer, lineIndex = N):
    a. Extract the last physical line content (excluding line terminators).
-   b. Derive tweak using extracted salt, segmentIndex from NZB, and lineIndex = N.
+   b. Derive tweak using extracted salt, extracted segmentIndex, and lineIndex = N.
    c. Apply FF1 decryption over the 253-character Alphabet.
    d. Verify decrypted content starts with "=yend".
    e. Replace line N encrypted content with decrypted content.
@@ -327,7 +352,6 @@ classified in both tiers.
 1. Non-Retriable Structural Failures:
    - Missing NZB provenance when transport decryption was requested.
    - Malformed NZB XML.
-   - Missing, malformed, zero, or duplicate segmentIndex in the NZB.
    - Missing or empty password in NZB metadata.
    - Locally unsupported encryption mode or cryptographic dependency.
    Action: Abort the job without querying alternate Usenet servers.
@@ -336,11 +360,13 @@ classified in both tiers.
 2. Retriable Provider Corruption Failures:
    - Restored Line 1 does not begin with =ybegin.
    - Restored Line N does not begin with =yend.
+   - Line 1 shorter than 22 bytes (truncated bootstrap).
+   - Zero or invalid segmentIndex in Line 1 bootstrap.
    - Missing, malformed, misplaced, or duplicate yEnc control lines in the
      fetched article, including =ypart and =yencryption.
-   - An =yencryption line that violates the canonical grammar or contains an
-     unsupported cipher token other than XChaCha20-Poly1305.
-   - Dual-salt mismatch between restored Line 1 and =yencryption.
+   - An =yencryption line that violates the canonical five-token grammar or
+     contains an unsupported cipher token other than XChaCha20-Poly1305.
+   - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
    - Wire CRC mismatch, Poly1305 authentication failure, truncation, or other
      article-body corruption.
    Action: Mark the article corrupt and try an eligible alternate provider.
@@ -357,12 +383,13 @@ and MUST discard them on failure.
 6. Length Properties
 
 - The first encrypted yEnc control line (lineIndex=1) expands by
-  exactly 16 bytes due to the prepended random salt.
+  exactly 20 bytes due to the prepended article bootstrap (16 bytes
+  salt + 4 bytes big-endian segmentIndex).
 - All subsequent encrypted yEnc control lines (lineIndex > 1) preserve
   exact plaintext length (identical length to original).
 - Data lines remain completely unchanged in length, byte content,
   and line terminators.
-- Overall yEnc block length increases by exactly 16 bytes (the salt).
+- Overall yEnc block length increases by exactly 20 bytes (the bootstrap).
 - Line endings (CRLF or LF) and data line formatting are preserved
   throughout the process.
 
@@ -375,11 +402,11 @@ and MUST discard them on failure.
   across all articles and lines.
 - Argon2id with random salts provides strong protection against brute-force
   and rainbow table attacks.
-- Dual-salt verification prevents salt substitution attacks across control
-  line and body encryption schemes.
+- Dual-bootstrap verification prevents salt or index substitution attacks
+  across control line and body encryption schemes.
 - The scheme offers confidentiality for control headers and footers.
-- segmentIndex is public metadata carried in the NZB; it does not
-  require confidentiality.
+- segmentIndex is public metadata self-described within article bootstrap
+  bytes; it does not require confidentiality.
 - Tampering with segmentIndex produces an incorrect tweak, causing
   FF1 to output arbitrary bytes that do not begin with "=ybegin"
   on line 1, failing restoration.
@@ -409,42 +436,34 @@ The password in this tag is used to derive the transport decryption key.
 It MAY also be utilized by post-processing tools as the archive extraction
 password for RAR/7z/ZIP archives if archive passwords match.
 
-Segment Index XML Attribute:
-Each <segment> element under <segments> within <file> carries an
-unqualified, case-sensitive segmentIndex attribute:
-
-  <segment bytes="750000" number="1" segmentIndex="1">article-1@example.com</segment>
-
-Attribute Specification:
-- Attribute name: segmentIndex (exact case-sensitive ASCII string).
-- Range: unsigned 32-bit integer from 1 to 4294967295 (1..=4294967295).
-- Formatting: shortest ASCII decimal representation (digits 0-9 only).
-  Implementations MUST reject zero, leading zeroes, signs, whitespace,
-  non-decimal characters, non-digits, and values exceeding 4294967295.
-
-Coexistence with Standard Attributes:
-The number attribute represents the 1-based part number within the file.
-The segmentIndex attribute represents the session-wide encryption index.
-Both attributes MUST be written; segmentIndex does not replace number.
+Standard NZB 1.1 Segments (Clean Segments):
+Every <segment> element under <segments> within <file> uses standard NZB 1.1
+attributes only:
+  <segment bytes="750000" number="1">article-1@example.com</segment>
+No custom segmentIndex XML attribute is emitted by uploaders or expected
+by downloaders. Segment identity is fully self-describing in article bootstrap
+bytes.
 
 Producer Requirements:
 For an encrypted upload, the NZB writer MUST:
 1. Emit <meta type="yenc_encrypted">true</meta> in the <head> section.
 2. Emit <meta type="password">...</meta> with the transport password.
-3. Add segmentIndex to every <segment> in the upload session.
-4. Serialize it as shortest ASCII decimal in the range 1..=4294967295.
-5. Ensure each encrypted article has a unique value within the upload.
+3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only.
+4. Embed the 1-based segmentIndex into the article bootstrap (Line 1 prefix
+   and =yencryption index parameter).
+5. Ensure each encrypted article has a unique segmentIndex within the upload session.
 6. Assign indices continuously starting from 1 for fresh uploads.
 7. Preserve an article's assigned index across retries, reposts, and resume.
 
 Consumer Requirements:
 An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
-2. Parse and strictly validate segmentIndex whenever present.
-3. Reject zero, leading zeroes, signs, whitespace, non-digits, and duplicates.
-4. Maintain the segmentIndex bound to its Message-ID throughout queueing.
-5. Use the explicit segmentIndex for control-line tweak derivation.
-6. Reject encrypted articles whose NZB segment lacks a valid segmentIndex.
+2. Read <meta type="password"> for the transport password.
+3. Treat <segment> elements as standard NZB 1.1 records without expecting
+   custom XML attributes.
+4. Extract segmentIndex and salt directly from fetched article bootstrap bytes.
+5. Use the extracted segmentIndex for control-line tweak derivation and
+   body nonce derivation.
 
 Decoupling of Presentation Metadata:
 - <file subject> has no cryptographic meaning.
@@ -492,7 +511,7 @@ Input plaintext yEnc block:
   ghiJKL456
   =yend size=18
 
-Corresponding NZB segment XML:
+Corresponding Clean NZB 1.1 XML:
 
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
@@ -506,19 +525,20 @@ Corresponding NZB segment XML:
       <group>alt.binaries.test</group>
     </groups>
     <segments>
-      <segment bytes="49" number="1" segmentIndex="1">article-1@example.com</segment>
+      <segment bytes="53" number="1">article-1@example.com</segment>
     </segments>
   </file>
 </nzb>
 
-Here segmentIndex=1 is obtained from the NZB segmentIndex attribute.
+Here segmentIndex=1 is embedded directly in the article bootstrap prefix on Line 1.
 
 Encryption Processing:
 - Total physical lines N = 4.
 - Line 1 (lineIndex=1): "=ybegin line=9 size=18 name=file.bin" (33 bytes)
   -> FF1 encrypt with tweak derived from segmentIndex=1 and lineIndex=1 (33 bytes)
-  -> Prepend the 16-byte salt from Alphabet
-  -> Encrypted line 1 expands by 16 bytes: 16 bytes salt + 33 bytes ciphertext = 49 bytes.
+  -> Prepend the 20-byte article bootstrap: 16-byte raw salt from Alphabet
+     followed by 4-byte uint32_be(1) (0x00 0x00 0x00 0x01)
+  -> Encrypted line 1 expands by 20 bytes: 20 bytes bootstrap + 33 bytes ciphertext = 53 bytes.
 - Line 2 (lineIndex=2): "abcDEF123" -> unchanged (data line).
 - Line 3 (lineIndex=3): "ghiJKL456" -> unchanged (data line).
 - Line 4 (lineIndex=4): "=yend size=18" (13 bytes)
@@ -526,15 +546,18 @@ Encryption Processing:
   -> Preserves exact length: 13 bytes ciphertext.
 
 Combined Mode with Body Encryption Example:
-- In combined mode, =yencryption header is present at physical line 2 (for single-part)
-  or physical line 3 (for multipart after =ypart).
-- Dual-salt agreement requires raw 16-byte salt prepended to Line 1 to equal
-  the 16-byte salt in =yencryption header.
+- In combined mode, canonical 5-token =yencryption header is present at physical line 2
+  (for single-part) or physical line 3 (for multipart after =ypart):
+  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=00000001 tag=<32_hex_chars>
+- Dual-bootstrap agreement requires raw salt and segmentIndex on Line 1 to equal
+  salt and index in =yencryption header.
 
 Decryption Processing:
 - Line 1 (lineIndex=1):
+  * Verify line 1 length >= 22 bytes (53 bytes is valid).
   * Extract first 16 bytes as salt.
-  * Decrypt remaining 33 bytes with lineIndex=1, segmentIndex=1 from NZB, and extracted salt.
+  * Extract next 4 bytes as uint32_be segmentIndex (value=1).
+  * Decrypt remaining 33 bytes with lineIndex=1, segmentIndex=1, and extracted salt.
   * Result: "=ybegin line=9 size=18 name=file.bin" -> valid header, keep.
 - Line 2 (lineIndex=2):
   * Attempt decrypt with lineIndex=2.
@@ -543,13 +566,13 @@ Decryption Processing:
 - Line 3 (lineIndex=3):
   * Data line -> retain original "ghiJKL456" untouched.
 - Line 4 (lineIndex=4=N):
-  * Decrypt last physical line (lineIndex=4) with lineIndex=4, segmentIndex=1 from NZB, and extracted salt.
+  * Decrypt last physical line (lineIndex=4) with lineIndex=4, segmentIndex=1, and extracted salt.
   * Result: "=yend size=18" -> valid footer.
 
 After decryption, the reconstructed text matches the original yEnc
 block exactly, with control lines restored and data lines unchanged.
-Overall block length increased on wire by exactly 16 bytes due to salt
-prepended to line 1.
+Overall block length increased on wire by exactly 20 bytes due to the
+bootstrap prefix prepended to line 1.
 
 ----------------------------------------------------------------------
 11. Summary
@@ -559,10 +582,12 @@ This Standard describes deterministic format-preserving encryption
 encrypted messages that:
   - Keep all data lines completely unchanged.
   - Encrypt only yEnc header and footer information (lines starting with "=y").
-  - Prepend 16-byte salt on Line 1 while preserving exact length on lines 2..N.
-  - Maintain dual-salt byte equality when combined with body encryption.
+  - Prepend 20-byte article bootstrap prefix on Line 1 (16B salt + 4B segmentIndex)
+    while preserving exact length on lines 2..N.
+  - Maintain dual-bootstrap agreement when combined with body encryption.
   - Follow strict header placement rules for single-part (line 2) and multipart (line 3).
   - Require <meta type="yenc_encrypted">true</meta> in NZB metadata.
+  - Decouple segment identity from NZB XML schema, standardizing clean NZB 1.1.
   - Preserve exact message structure and line endings (CRLF canonical, bare LF accepted).
   - Remain printable and safe for Usenet transport.
   - Enforce two-tier error handling with zero output on failure.

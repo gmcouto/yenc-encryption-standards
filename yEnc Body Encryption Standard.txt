@@ -1,9 +1,9 @@
 SPECIFICATION: yEnc Body Encryption Standard
-Version: 1.0
-Date: 2026-09-27
+Version: 1.1
+Date: 2026-10-01
 Author: Independent Specification
 
-Status: Frozen Wire Contract (v1.0)
+Status: Experimental Wire Contract (v1.1)
 Category: Standards Track
 
 Abstract:
@@ -15,6 +15,18 @@ of the transmitted data.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.1 (2026-10-01):
+- Expanded canonical =yencryption header grammar to five space-separated tokens:
+  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>.
+- Defined index parameter as exactly 8 lowercase hexadecimal digits representing
+  uint32_be(segmentIndex) in range 00000001..ffffffff (00000000 is invalid),
+  producing an exact line length of 128 characters excluding CRLF.
+- Established dual-bootstrap cross-header agreement requiring byte-for-byte
+  salt equality and value-for-value segmentIndex equality between Line 1 and
+  =yencryption, classifying mismatches as PROVIDER_FAILOVER.
+- Decoupled segment identity from NZB XML schema, removing segmentIndex
+  attributes from Section 8 and restoring clean NZB 1.1 segment elements.
 
 Version 1.0 (2026-09-27):
 - Defined NZB provenance marker <meta type="yenc_encrypted">true</meta>
@@ -104,9 +116,10 @@ and transport integrity are required across Usenet distribution networks.
 
   segmentIndex:
     An unsigned 32-bit integer in the range 1..=4294967295 carried
-    explicitly as the segmentIndex attribute on each NZB <segment>
-    element. It provides unique nonce values for every segment across
-    the upload session without file-boundary arithmetic.
+    in the article bootstrap (the index parameter of =yencryption and
+    bytes 16..19 of Line 1 prefix). It provides unique nonce values
+    for every segment across the upload session without file-boundary
+    arithmetic or NZB XML dependencies.
 
   yenc_encrypted Provenance:
     An explicit metadata flag in the NZB <head> section defined as
@@ -114,16 +127,17 @@ and transport integrity are required across Usenet distribution networks.
     underlying yEnc articles are wire-encrypted and instructs download
     clients to dispatch them to the transport decryption engine.
 
-  Dual-Salt Agreement:
+  Dual-Bootstrap Agreement:
     When control line encryption and body encryption are combined,
-    the 16-byte raw salt prepended to Line 1 and the 16-byte salt
-    encoded in the =yencryption header MUST be byte-for-byte identical.
+    the 16-byte raw salt and 4-byte uint32_be segmentIndex from Line 1
+    MUST match the salt and index parameters encoded in the =yencryption
+    header byte-for-byte and value-for-value.
 
 ----------------------------------------------------------------------
 3. Processing Procedure
 
 Encryption Input: Binary file data, password, and segmentIndex assigned
-to the corresponding NZB <segment> record.
+to the segment.
 
 Encryption Steps:
 
@@ -136,16 +150,16 @@ Encryption Steps:
    ciphertext and 128-bit Poly1305 authentication tag.
 5. Apply standard yEnc encoding to the ciphertext only (without tag).
 6. Calculate the 32-bit CRC (CRC32) over the raw ciphertext bytes.
-7. Format the =yencryption header with the canonical grammar in
-   Section 4.
+7. Format the =yencryption header with the canonical 5-token grammar in
+   Section 4:
+   =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
 8. Insert the =yencryption header at the exact physical line position:
    - For single-part articles: physical line 2, immediately following =ybegin.
    - For multipart articles: physical line 3, immediately following =ypart.
 9. Complete the yEnc block with data lines and the =yend footer line,
    writing the calculated ciphertext CRC in the pcrc32/crc32 parameter.
 
-Decryption Input: Validated NZB segment record with segmentIndex, password
-from NZB metadata, and fetched article body.
+Decryption Input: Password from NZB metadata and fetched article body.
 
 Decryption Steps:
 
@@ -155,10 +169,13 @@ Decryption Steps:
 3. Locate and validate the =yencryption header at physical line 2 (for
    single-part) or physical line 3 (for multipart articles after =ypart).
    Reject duplicate, missing, or misplaced =yencryption lines.
-4. Validate the header syntax: exactly four tokens, exact cipher name
-   "XChaCha20-Poly1305", and lowercase 32-character hexadecimal salt and tag.
-5. If control line encryption is also present, verify dual-salt agreement:
-   the decoded 16-byte salt MUST match the raw 16-byte salt from Line 1.
+4. Validate the header syntax: exactly five tokens, exact cipher name
+   "XChaCha20-Poly1305", lowercase 32-character hexadecimal salt, lowercase
+   8-character hexadecimal index (non-zero), and lowercase 32-character
+   hexadecimal tag.
+5. If control line encryption is also present, verify dual-bootstrap agreement:
+   the decoded 16-byte salt MUST match the raw 16-byte salt from Line 1, AND
+   the decoded segmentIndex MUST match the uint32_be segmentIndex from Line 1.
 6. Decode the yEnc data lines into raw ciphertext bytes.
 7. If the =yend line contains a crc32 or pcrc32 value, verify that the
    CRC32 of the decoded ciphertext matches the wire CRC value. If it
@@ -187,9 +204,9 @@ Parameters:
     threads=4, 256-bit output)
   - Nonce derivation: HMAC-SHA256(key, "yenc-body nonce" ||
     uint32_be(segmentIndex))[0:24]
-    where segmentIndex is the unsigned 32-bit integer serialized in the
-    NZB segmentIndex attribute and encoded as a 4-byte unsigned integer
-    in big-endian order (uint32_be, network byte order).
+    where segmentIndex is the unsigned 32-bit integer in range 1..=4294967295
+    encoded as a 4-byte unsigned integer in big-endian order (uint32_be,
+    network byte order).
 
 Procedure:
 
@@ -204,8 +221,7 @@ Procedure:
        (0x79 0x65 0x6e 0x63 0x2d 0x62 0x6f 0x64 0x79 0x20 0x6e
         0x6f 0x6e 0x63 0x65)
      - Bytes 15..18 (4 bytes): uint32_be(segmentIndex), serialized
-       as a fixed 4-byte unsigned integer in big-endian order and
-       matching the corresponding NZB segmentIndex attribute
+       as a fixed 4-byte unsigned integer in big-endian order
        (network byte order: (segmentIndex >> 24) & 0xFF,
         (segmentIndex >> 16) & 0xFF, (segmentIndex >> 8) & 0xFF,
         segmentIndex & 0xFF).
@@ -225,20 +241,23 @@ imported from RFC 5234. A line terminator is not part of the grammar.
     yencryption = "=yencryption" SP
                   "cipher=XChaCha20-Poly1305" SP
                   "salt=" 32HEXDIG-LOWER SP
+                  "index=" 8HEXDIG-LOWER SP
                   "tag=" 32HEXDIG-LOWER
     HEXDIG-LOWER = DIGIT / %x61-66
 
-The resulting line has exactly four SP-separated tokens in this order:
+The resulting line has exactly five SP-separated tokens in this order:
 
-  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>
+  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
 
-Each placeholder denotes exactly 32 lowercase hexadecimal characters and is
-replaced by the encoded value. The angle brackets and placeholder text do not
-appear on the wire. A producer MUST emit exactly one SP between tokens and no
-leading or trailing whitespace. A consumer MUST reject tabs, repeated spaces,
-reordered, duplicate, missing, or extra fields, uppercase hexadecimal digits,
-non-hexadecimal characters, values of any other length, and any cipher name
-other than XChaCha20-Poly1305.
+Each placeholder denotes lowercase hexadecimal characters and is replaced by
+the encoded value: salt is exactly 32 hex chars, index is exactly 8 hex chars
+representing uint32_be(segmentIndex) in range 00000001..ffffffff (00000000 is invalid),
+and tag is exactly 32 hex chars. The angle brackets and placeholder text do not
+appear on the wire. Total line length is exactly 128 characters excluding CRLF.
+A producer MUST emit exactly one SP between tokens and no leading or trailing
+whitespace. A consumer MUST reject tabs, repeated spaces, reordered, duplicate,
+missing, or extra fields, uppercase hexadecimal digits, non-hexadecimal characters,
+values of any other length, and any cipher name other than XChaCha20-Poly1305.
 
 Single-part yEnc blocks MUST place =yencryption at physical line 2 immediately
 after =ybegin. Multipart yEnc blocks MUST place =ypart at physical line 2 and
@@ -249,18 +268,18 @@ reject multiple =yencryption lines in one article.
 5. Decryption and Error Handling
 
 Input: Fetched yEnc block with encrypted binary data, password from the
-NZB metadata, and segmentIndex obtained from the corresponding NZB
-segment element.
+NZB metadata.
 
 Decryption Processing:
 
 1. Parse the yEnc block and locate the =yencryption header at line 2
    (single-part) or line 3 (multipart).
-2. Validate that the line conforms strictly to the four tokens grammar
-   with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, and
-   valid lowercase 32-hex tag.
+2. Validate that the line conforms strictly to the five tokens grammar
+   with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, valid
+   lowercase 8-hex index (non-zero), and valid lowercase 32-hex tag.
 3. In dual-encrypted mode, assert that the 16-byte decoded salt equals
-   the restored Line 1 raw salt. If unequal, fail closed.
+   the restored Line 1 raw salt, and the decoded index equals the restored
+   Line 1 segmentIndex. If unequal, fail closed.
 4. Decode yEnc data lines to extract ciphertext bytes.
 5. Verify wire CRC against ciphertext bytes if present in =yend.
 6. Derive key and nonce using password, salt, and segmentIndex (uint32_be).
@@ -276,13 +295,12 @@ an article fetch. The provider-corruption tier applies to bytes in a fetched
 article after those structural inputs have passed validation. A malformed,
 missing, or misplaced control line in the fetched article is therefore
 provider corruption, including malformed =yencryption syntax, an unsupported
-cipher token, a duplicate =yencryption line, and a dual-salt mismatch. This
-rule prevents the same article defect from being classified in both tiers.
+cipher token, a duplicate =yencryption line, and a dual-salt or dual-index mismatch.
+This rule prevents the same article defect from being classified in both tiers.
 
 1. Non-Retriable Structural Failures:
    - Missing NZB provenance when transport decryption was requested.
    - Malformed NZB XML.
-   - Missing, invalid, zero, or duplicate segmentIndex in the NZB.
    - Missing or empty password in NZB metadata.
    - Locally unsupported encryption mode or cryptographic dependency.
    Action: Abort the job without querying alternate Usenet servers.
@@ -293,7 +311,7 @@ rule prevents the same article defect from being classified in both tiers.
      fetched article, including =ybegin, =ypart, =yencryption, and =yend.
    - An =yencryption line that violates the canonical grammar or contains an
      unsupported cipher token other than XChaCha20-Poly1305.
-   - Dual-salt mismatch between restored Line 1 and =yencryption.
+   - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
    - Wire CRC mismatch over decoded ciphertext.
    - Poly1305 authentication tag verification failure.
    - Truncated or corrupted article body bytes.
@@ -314,7 +332,8 @@ working buffers until validation completes and MUST discard them on failure.
 - Encrypted binary data has the exact same length as original binary payload
   (Poly1305 authentication tag is stored in the header, not in payload).
 - yEnc encoding adds standard yEnc overhead (~1-2% typical expansion).
-- Exactly one =yencryption control line is added to the yEnc block header.
+- Exactly one =yencryption control line of length 128 characters is added to
+  the yEnc block header.
 - The size parameter in =ybegin and =yend reflects the ciphertext size,
   which is identical to original plaintext size.
 
@@ -326,8 +345,8 @@ working buffers until validation completes and MUST discard them on failure.
   all segments in the upload session.
 - Argon2id with 16-byte random salts protects against brute-force and
   rainbow table attacks.
-- Dual-salt verification prevents salt substitution attacks across control
-  line and body encryption schemes.
+- Dual-bootstrap verification prevents salt or index substitution attacks
+  across control line and body encryption schemes.
 - Wire CRC verification confirms transport integrity before AEAD
   authentication; Poly1305 confirms cryptographic authenticity.
 - Decoupled CRC metadata prevents downstream integrity tools (PAR2) from
@@ -358,42 +377,33 @@ The password in this tag is used to derive the transport decryption key.
 It MAY also be utilized by post-processing tools as the archive extraction
 password for RAR/7z/ZIP archives if archive passwords match.
 
-Segment Index XML Attribute:
-Each <segment> element under <segments> within <file> carries an
-unqualified, case-sensitive segmentIndex attribute:
-
-  <segment bytes="750000" number="1" segmentIndex="1">article-1@example.com</segment>
-
-Attribute Specification:
-- Attribute name: segmentIndex (exact case-sensitive ASCII string).
-- Range: unsigned 32-bit integer from 1 to 4294967295 (1..=4294967295).
-- Formatting: shortest ASCII decimal representation (digits 0-9 only).
-  Implementations MUST reject zero, leading zeroes, signs, whitespace,
-  non-decimal characters, non-digits, and values exceeding 4294967295.
-
-Coexistence with Standard Attributes:
-The number attribute represents the 1-based part number within the file.
-The segmentIndex attribute represents the session-wide encryption index.
-Both attributes MUST be written; segmentIndex does not replace number.
+Standard NZB 1.1 Segments (Clean Segments):
+Every <segment> element under <segments> within <file> uses standard NZB 1.1
+attributes only:
+  <segment bytes="750000" number="1">article-1@example.com</segment>
+No custom segmentIndex XML attribute is emitted by uploaders or expected
+by downloaders. Segment identity is fully self-describing in article bootstrap
+bytes.
 
 Producer Requirements:
 For an encrypted upload, the NZB writer MUST:
 1. Emit <meta type="yenc_encrypted">true</meta> in the <head> section.
 2. Emit <meta type="password">...</meta> with the transport password.
-3. Add segmentIndex to every <segment> in the upload session.
-4. Serialize it as shortest ASCII decimal in the range 1..=4294967295.
-5. Ensure each encrypted article has a unique value within the upload.
+3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only.
+4. Embed the 1-based segmentIndex into the article bootstrap (Line 1 prefix
+   and =yencryption index parameter).
+5. Ensure each encrypted article has a unique segmentIndex within the upload session.
 6. Assign indices continuously starting from 1 for fresh uploads.
 7. Preserve an article's assigned index across retries, reposts, and resume.
 
 Consumer Requirements:
 An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
-2. Parse and strictly validate segmentIndex whenever present.
-3. Reject zero, leading zeroes, signs, whitespace, non-digits, and duplicates.
-4. Maintain the segmentIndex bound to its Message-ID throughout queueing.
-5. Use the explicit segmentIndex for body nonce derivation.
-6. Reject encrypted articles whose NZB segment lacks a valid segmentIndex.
+2. Read <meta type="password"> for the transport password.
+3. Treat <segment> elements as standard NZB 1.1 records without expecting
+   custom XML attributes.
+4. Extract segmentIndex and salt directly from fetched article bootstrap bytes.
+5. Use the extracted segmentIndex for body nonce derivation.
 
 Decoupling of Presentation Metadata:
 - <file subject> has no cryptographic meaning.
@@ -427,7 +437,7 @@ Decoupling of Presentation Metadata:
 Input binary data: [18 bytes: 0x48656C6C6F20576F726C642E747874FF]
 Password: "test123"
 
-Corresponding NZB XML:
+Corresponding Clean NZB 1.1 XML:
 
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
@@ -441,7 +451,7 @@ Corresponding NZB XML:
       <group>alt.binaries.test</group>
     </groups>
     <segments>
-      <segment bytes="18" number="1" segmentIndex="1">article-1@example.com</segment>
+      <segment bytes="18" number="1">article-1@example.com</segment>
     </segments>
   </file>
 </nzb>
@@ -455,7 +465,7 @@ Derived parameters:
 Single-Part yEnc Encoded Wire Block (Line 2 Placement):
 
   =ybegin line=128 size=18 name=file.bin
-  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
+  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
   <yEnc-encoded ciphertext data lines>
   =yend size=18 crc32=d4a1b2c3
 
@@ -463,16 +473,16 @@ Multipart yEnc Encoded Wire Block (Line 3 Placement):
 
   =ybegin part=1 total=2 line=128 size=36 name=file.bin
   =ypart begin=1 end=18
-  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
+  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
   <yEnc-encoded ciphertext data lines>
   =yend size=18 part=1 pcrc32=d4a1b2c3
 
 Decryption Processing:
 1. Parse NZB metadata and detect <meta type="yenc_encrypted">true</meta>.
 2. Locate =yencryption header at line 2 (or line 3 if =ypart is line 2).
-3. Verify exact four tokens with lowercase hexadecimal salt and tag.
+3. Verify exact five tokens with lowercase hexadecimal salt, 8-hex index, and tag.
 4. Decode data lines and verify wire CRC against decoded ciphertext.
-5. Derive key and nonce using segmentIndex=1 and execute XChaCha20-Poly1305.
+5. Derive key and nonce using extracted index (segmentIndex=1) and execute XChaCha20-Poly1305.
 6. Poly1305 authentication verifies successfully.
 7. Clear wire CRC metadata (crc32 = None) and release original 18-byte binary plaintext.
 
@@ -484,8 +494,8 @@ applied to binary payloads before yEnc encoding. It establishes:
   - Robust AEAD protection with zero output on failure.
   - Decoupled NZB transport provenance via <meta type="yenc_encrypted">true</meta>.
   - Exact header placement for single-part (line 2) and multipart (line 3).
-  - Canonical four-token =yencryption grammar.
-  - Dual-salt agreement between control line and body encryption.
+  - Canonical five-token =yencryption grammar with fixed 128-character length.
+  - Dual-bootstrap agreement between control line and body encryption.
   - Downstream CRC normalization for seamless assembly and PAR2 verification.
   - Two-tier error handling distinguishing retriable provider corruption
     from fatal structural faults.
