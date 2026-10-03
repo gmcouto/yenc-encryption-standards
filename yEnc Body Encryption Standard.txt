@@ -16,6 +16,14 @@ of the transmitted data.
 ----------------------------------------------------------------------
 Change Log:
 
+2026-10-03 (editorial, cycle 3 adversarial review):
+- Corrected the Section 10 worked example: the payload is 16 bytes (matching
+  the canonical fixture), and its =ybegin/=yend sizes, NZB bytes attribute,
+  and multipart part arithmetic now agree with that length (C3-01, C3-02,
+  C3-03).
+- Scoped the Section 3 article-bootstrap-layout paragraph to combined mode and
+  stated that body-only articles carry no Line 1 bootstrap (C3-07).
+
 2026-10-03 (editorial, cycle 2 adversarial review):
 - Clarified that in combined mode the shared salt MUST lie in the intersection
   of both domains (the 253-byte Alphabet) to satisfy byte-for-byte dual-
@@ -181,12 +189,15 @@ is physical line 2 and =yencryption is physical line 3, immediately
 following =ypart. The header references the segmentIndex assigned to
 the segment.
 
-Article bootstrap layout: the Line 1 prefix is a fixed 20-byte sequence,
-16 raw salt bytes at offsets 0..15 followed by uint32_be(segmentIndex) at
-offsets 16..19 (the exact layout defined by the control lines standard).
-The same salt value is what the =yencryption salt parameter encodes, and
-the same segmentIndex value is what the =yencryption index parameter
-encodes; see the Dual-Bootstrap Agreement.
+Article bootstrap layout (combined mode): when control line encryption is
+also applied, the Line 1 prefix is a fixed 20-byte sequence, 16 raw salt
+bytes at offsets 0..15 followed by uint32_be(segmentIndex) at offsets
+16..19 (the exact layout defined by the control lines standard). In
+body-only mode there is no Line 1 bootstrap and no dual-bootstrap check;
+the salt and segmentIndex come solely from the =yencryption header. In
+combined mode the same salt value is what the =yencryption salt parameter
+encodes, and the same segmentIndex value is what the =yencryption index
+parameter encodes; see the Dual-Bootstrap Agreement.
 
 Combined mode order of operations: when control line encryption is also
 applied, the =yencryption line is itself a yEnc control line and arrives
@@ -469,7 +480,7 @@ Decoupling of Presentation Metadata:
 ----------------------------------------------------------------------
 10. Example
 
-Input binary data: [18 bytes: 0x48656C6C6F20576F726C642E747874FF]
+Input binary data: [16 bytes: 0x48656C6C6F20576F726C642E747874FF]
 Password: "test123"
 
 Corresponding Clean NZB 1.1 XML:
@@ -486,7 +497,7 @@ Corresponding Clean NZB 1.1 XML:
       <group>alt.binaries.test</group>
     </groups>
     <segments>
-      <segment bytes="18" number="1">article-1@example.com</segment>
+      <segment bytes="16" number="1">article-1@example.com</segment>
     </segments>
   </file>
 </nzb>
@@ -499,18 +510,18 @@ Derived parameters:
 
 Single-Part yEnc Encoded Wire Block (Line 2 Placement):
 
-  =ybegin line=128 size=18 name=file.bin
+  =ybegin line=128 size=16 name=file.bin
   =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
   <yEnc-encoded ciphertext data lines>
-  =yend size=18 crc32=d4a1b2c3
+  =yend size=16 crc32=d4a1b2c3
 
 Multipart yEnc Encoded Wire Block (Line 3 Placement):
 
-  =ybegin part=1 total=2 line=128 size=36 name=file.bin
-  =ypart begin=1 end=18
+  =ybegin part=1 total=2 line=128 size=16 name=file.bin
+  =ypart begin=1 end=8
   =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
   <yEnc-encoded ciphertext data lines>
-  =yend size=18 part=1 pcrc32=d4a1b2c3
+  =yend size=8 part=1 pcrc32=d4a1b2c3
 
 Decryption follows the authoritative procedure in Section 5: parse NZB
 metadata and detect <meta type="yenc_encrypted">true</meta>, locate the
@@ -518,7 +529,7 @@ metadata and detect <meta type="yenc_encrypted">true</meta>, locate the
 exact five tokens with lowercase hexadecimal salt, 8-hex index, and tag,
 decode data lines and verify wire CRC, derive key and nonce using the
 extracted index (segmentIndex=1), execute XChaCha20-Poly1305, then clear
-wire CRC metadata (crc32 = None) and release the original 18-byte binary
+wire CRC metadata (crc32 = None) and release the original 16-byte binary
 plaintext.
 
 ----------------------------------------------------------------------

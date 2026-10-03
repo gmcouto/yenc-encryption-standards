@@ -11,11 +11,21 @@ This document defines a reversible, format-preserving encryption
 scheme for yEnc control lines in yEnc-encoded binary blocks used in
 Usenet transfers. The scheme maintains exact length for lines 2..N,
 prepends an article bootstrap prefix on line 1 containing salt and
-segmentIndex, and preserves the printable yEnc character range
+segmentIndex, and preserves the CR/LF-free 253-byte Alphabet range
 required for Usenet transmission.
 
 ----------------------------------------------------------------------
 Change Log:
+
+2026-10-03 (editorial, cycle 3 adversarial review):
+- Resolved contradictory header-loop bounds in Section 5 step 4a: the loop
+  stops before lineIndex = N, and the no-data-line outcome is restated without
+  the second bound (C3-06).
+- Corrected the Section 10 NZB bytes attribute to the segment payload size
+  (18) so it matches =yend size=18 and the body standard's convention (C3-04).
+- Replaced the "printable" characterization of the 253-byte Alphabet with the
+  CR/LF-free byte-range definition in the Abstract, Section 1, Section 4, and
+  Section 11 (C3-05).
 
 2026-10-03 (editorial, cycle 2 adversarial review):
 - Clarified that in combined mode the shared salt MUST lie in the intersection
@@ -124,7 +134,8 @@ Version 0.3 (2025-10-26):
 This specification describes the method to encrypt and decrypt
 yEnc header and footer lines (lines beginning with "=y") while
 maintaining:
-  - yEnc-compatible printable characters
+  - yEnc-compatible characters (the 253-byte Alphabet: all bytes
+    0x01-0xFF except 0x0A and 0x0D)
   - deterministic reconstruction of the original yEnc structure
   - exact length preservation for lines 2..N, with the first encrypted
     control line (lineIndex=1) expanding by exactly 20 bytes due to
@@ -259,7 +270,8 @@ terminators and data lines are preserved exactly as received.
 Algorithm: FF1 (NIST SP 800-38G compliant Format-Preserving Encryption)
 
 Parameters:
-  - Alphabet: 253 printable characters (see Section 2)
+  - Alphabet: 253 characters (all byte values 0x01-0xFF except
+    0x0A and 0x0D; see Section 2)
   - Block cipher: AES-256
    - Salt: 16-byte random value sampled uniformly from the 253 Alphabet
      bytes (use cryptographically secure RNG). Every salt byte MUST be
@@ -337,11 +349,11 @@ Decryption Steps:
    h. Replace line 1 encrypted content with decrypted content.
 4. Process subsequent header lines (lineIndex = 2, 3, ...):
    a. For each physical line before data lines (lineIndex=2, 3, ...),
-      stopping at lineIndex = N - 1 at the latest. The footer line
+      stop the loop at lineIndex = N - 1 at the latest. The footer line
       (lineIndex = N) is always handled by step 6 and MUST NOT be
-      decrypted by this loop; a header loop that reaches lineIndex = N
-      without finding a data line means the block has no data lines, and
-      the loop ends without a result for line N.
+      decrypted by this loop. If the loop reaches its last permitted line
+      (lineIndex = N - 1) without finding a data line, the block has no
+      data lines; the loop ends and step 6 processes the footer.
       - Extract line content (excluding line terminators).
       - Derive tweak using extracted salt, extracted segmentIndex, and
         current lineIndex.
@@ -585,7 +597,7 @@ Corresponding Clean NZB 1.1 XML:
       <group>alt.binaries.test</group>
     </groups>
     <segments>
-      <segment bytes="53" number="1">article-1@example.com</segment>
+      <segment bytes="18" number="1">article-1@example.com</segment>
     </segments>
   </file>
 </nzb>
@@ -649,7 +661,7 @@ encrypted messages that:
   - Require <meta type="yenc_encrypted">true</meta> in NZB metadata.
   - Decouple segment identity from NZB XML schema, standardizing clean NZB 1.1.
   - Preserve exact message structure and line endings (CRLF canonical, bare LF accepted).
-  - Remain printable and safe for Usenet transport.
+  - Remain within the CR/LF-free 253-byte Alphabet and safe for Usenet transport.
   - Enforce two-tier error handling with zero output on failure.
 
 ----------------------------------------------------------------------
