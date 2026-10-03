@@ -11,7 +11,7 @@ This repository contains specifications for two encryption standards for yEnc-en
 
 This standard obfuscates and protects metadata. It targets the yEnc header and footer lines (lines beginning with "=y") and uses FF1 Format-Preserving Encryption.
 
-Encrypted control lines keep the exact length (lines 2..N) and character compatibility. The first control line (lineIndex=1) expands by 20 bytes because of the prepended article bootstrap (16-byte raw salt from the 253-byte Alphabet and 4-byte big-endian uint32 segmentIndex). Only metadata is encrypted; binary data lines remain completely untouched. File names, sizes, part information, and yEnc structure are hidden. Line counting uses 1-based physical line numbers after NNTP dot-unstuffing. The standard can be omitted when obfuscation is not required.
+Encrypted control lines keep the exact length (lines 2..N) and character compatibility. The first control line (lineIndex=1) expands by 20 bytes because of the prepended article bootstrap (16-byte raw salt from the 253-byte Alphabet and 4-byte big-endian uint32 segmentIndex); the expansion is measured on line content, excluding any trailing line terminator, and bootstrap extraction happens after NNTP dot-unstuffing. Only metadata is encrypted; binary data lines remain completely untouched. File names, sizes, part information, and yEnc structure are hidden. Line counting uses 1-based physical line numbers after NNTP dot-unstuffing. Line terminators are preserved byte-for-byte on reconstruction (bare LF is never canonicalized to CRLF). The standard can be omitted when obfuscation is not required.
 
 ### 2. yEnc Body Encryption Standard
 
@@ -21,7 +21,7 @@ It encrypts the actual file data and detects tampering through cryptographic aut
 
 ## Usage Scenarios
 
-For strong file protection while control metadata remains visible, apply the Body Encryption Standard only. To hide upload metadata while file content protection is handled separately or not required, apply the Control Lines Encryption Standard only. For protection of both content and metadata, apply both standards together. With both standards in use, the 16-byte raw salt and 4-byte big-endian segmentIndex from Line 1 MUST equal the 16-byte salt and 8-hex index carried in `=yencryption` byte-for-byte and value-for-value. When no special security requirements apply, apply neither standard and process the upload as standard yEnc.
+For strong file protection while control metadata remains visible, apply the Body Encryption Standard only. To hide upload metadata while file content protection is handled separately or not required, apply the Control Lines Encryption Standard only. For protection of both content and metadata, apply both standards together. With both standards in use, the 16-byte raw salt and 4-byte big-endian segmentIndex from Line 1 MUST equal the 16-byte salt and 8-hex index carried in `=yencryption` byte-for-byte and value-for-value; because one salt is shared, the combined-mode salt MUST lie in the intersection of both domains (the 253-byte Alphabet, with bytes 0x00, 0x0A, and 0x0D excluded). When no special security requirements apply, apply neither standard and process the upload as standard yEnc.
 
 ## Password Management and Canonical NZB Metadata
 
@@ -157,7 +157,7 @@ Because AEAD authentication must finish before plaintext release, an implementat
 
 ## Status
 
-Both specifications are published as experimental v1.1 wire contracts (v1.1 Experimental) dated 2026-10-01. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF, while the control standard's salt is sampled uniformly from its 253-byte Alphabet. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
+Both specifications are published as experimental v1.1 wire contracts (v1.1 Experimental) dated 2026-10-01. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF in body-only mode, while the control standard's salt is sampled uniformly from its 253-byte Alphabet; in combined mode the shared salt is constrained to the 253-byte Alphabet intersection. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
 
 ## Contributing
 

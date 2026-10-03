@@ -16,6 +16,17 @@ of the transmitted data.
 ----------------------------------------------------------------------
 Change Log:
 
+2026-10-03 (editorial, cycle 2 adversarial review):
+- Clarified that in combined mode the shared salt MUST lie in the intersection
+  of both domains (the 253-byte Alphabet) to satisfy byte-for-byte dual-
+  bootstrap agreement (C2-01).
+- Stated the combined-mode order of operations: =yencryption is restored by
+  the control layer before body grammar validation (C2-04).
+- Added normative description of the 20-byte Line 1 bootstrap layout directly
+  in Section 3, removing cross-reference-only layout ambiguity (C2-07).
+- Reconciled "128 characters" vs "128 bytes" wording, anchoring measurement to
+  dot-unstuffed line content excluding any line terminator (C2-08).
+
 2026-10-03 (editorial, cycle 1 adversarial review):
 - Defined "release" in the zero-output rule to cover any transfer to another
   component or stage, not only the final file write, closing a partial-
@@ -147,7 +158,11 @@ and transport integrity are required across Usenet distribution networks.
     When control line encryption and body encryption are combined,
     the 16-byte raw salt and 4-byte uint32_be segmentIndex from Line 1
     MUST match the salt and index parameters encoded in the =yencryption
-    header byte-for-byte and value-for-value.
+    header byte-for-byte and value-for-value. Because the two standards
+    share one salt value, the combined-mode salt MUST lie in the
+    intersection of the two salt domains, which is the control standard's
+    253-byte Alphabet: every shared salt byte MUST differ from 0x00,
+    0x0A, and 0x0D.
 
 ----------------------------------------------------------------------
 3. Processing Procedure
@@ -166,6 +181,21 @@ is physical line 2 and =yencryption is physical line 3, immediately
 following =ypart. The header references the segmentIndex assigned to
 the segment.
 
+Article bootstrap layout: the Line 1 prefix is a fixed 20-byte sequence,
+16 raw salt bytes at offsets 0..15 followed by uint32_be(segmentIndex) at
+offsets 16..19 (the exact layout defined by the control lines standard).
+The same salt value is what the =yencryption salt parameter encodes, and
+the same segmentIndex value is what the =yencryption index parameter
+encodes; see the Dual-Bootstrap Agreement.
+
+Combined mode order of operations: when control line encryption is also
+applied, the =yencryption line is itself a yEnc control line and arrives
+FF1-encrypted. A decoder MUST restore control lines first, using the
+control lines standard, and MUST validate the five-token =yencryption
+grammar and dual-bootstrap agreement only after that restoration. A
+decoder that expects a plaintext =yencryption token sequence directly on
+the wire is non-conformant in combined mode.
+
 ----------------------------------------------------------------------
 4. Encryption Algorithm
 
@@ -175,8 +205,14 @@ Parameters:
   - Cipher: XChaCha20 (256-bit key, 192-bit nonce)
   - Authentication: Poly1305 (128-bit tag)
   - Salt: 16-byte random value over the full byte domain 0x00..0xFF
-    (generated via cryptographically secure RNG). Unlike the control lines
-    standard, the body salt is not restricted to the 253 Alphabet bytes.
+    (generated via cryptographically secure RNG). In body-only mode the
+    salt is not restricted to the 253 Alphabet bytes. In combined mode
+    (control line encryption also applied) the single shared salt MUST lie
+    in the intersection of the two domains, which is the control standard's
+    253-byte Alphabet: every salt byte MUST differ from 0x00, 0x0A, and 0x0D
+    so that the byte-for-byte dual-bootstrap equality in the control
+    standard is satisfiable. A producer that samples a forbidden byte for
+    the shared salt cannot satisfy both standards and MUST resample.
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output)
   - Nonce derivation: HMAC-SHA256(key, "yenc-body nonce" ||
@@ -230,7 +266,9 @@ Each placeholder denotes lowercase hexadecimal characters and is replaced by
 the encoded value: salt is exactly 32 hex chars, index is exactly 8 hex chars
 representing uint32_be(segmentIndex) in range 00000001..ffffffff (00000000 is invalid),
 and tag is exactly 32 hex chars. The angle brackets and placeholder text do not
-appear on the wire. Total line length is exactly 128 characters excluding CRLF.
+appear on the wire. Total line content is exactly 128 bytes (ASCII characters),
+measured after NNTP dot-unstuffing and excluding any line terminator (CRLF or
+bare LF).
 A producer MUST emit exactly one SP between tokens and no leading or trailing
 whitespace. A consumer MUST reject tabs, repeated spaces, reordered, duplicate,
 missing, or extra fields, uppercase hexadecimal digits, non-hexadecimal characters,
@@ -258,9 +296,10 @@ Decryption Processing:
 2. Validate that the line conforms strictly to the five tokens grammar
    with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, valid
    lowercase 8-hex index (non-zero), and valid lowercase 32-hex tag.
-   The line content must be exactly 128 bytes excluding CRLF; a shorter
-   or longer line fails the grammar check as a truncation or extension
-   defect and MUST be treated as provider corruption.
+   The line content must be exactly 128 bytes (ASCII characters) excluding
+   line terminators (CRLF or bare LF); a shorter or longer line fails the
+   grammar check as a truncation or extension defect and MUST be treated
+   as provider corruption.
 3. In dual-encrypted mode, assert that the 16-byte decoded salt equals
    the restored Line 1 raw salt, and the decoded index equals the restored
    Line 1 segmentIndex. If unequal, fail closed with PROVIDER_FAILOVER
