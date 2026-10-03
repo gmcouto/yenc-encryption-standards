@@ -136,60 +136,19 @@ and transport integrity are required across Usenet distribution networks.
 ----------------------------------------------------------------------
 3. Processing Procedure
 
-Encryption Input: Binary file data, password, and segmentIndex assigned
+Encryption Input: Binary file data, password, and the segmentIndex assigned
 to the segment.
 
-Encryption Steps:
+Encryption and decryption follow the authoritative procedures: Section 4
+defines the encryption algorithm, including key and nonce derivation and the
+canonical =yencryption header grammar. Section 5 defines the decryption
+procedure and error handling.
 
-1. Read the binary file data (binary payload).
-2. Derive the 256-bit encryption key using Argon2id with a 16-byte
-   cryptographically secure random salt and the upload password.
-3. Derive the 192-bit nonce using HMAC-SHA256 with the key and the
-   assigned segmentIndex serialized as uint32_be (see Section 4).
-4. Encrypt the binary payload using XChaCha20-Poly1305 to generate the
-   ciphertext and 128-bit Poly1305 authentication tag.
-5. Apply standard yEnc encoding to the ciphertext only (without tag).
-6. Calculate the 32-bit CRC (CRC32) over the raw ciphertext bytes.
-7. Format the =yencryption header with the canonical 5-token grammar in
-   Section 4:
-   =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
-8. Insert the =yencryption header at the exact physical line position:
-   - For single-part articles: physical line 2, immediately following =ybegin.
-   - For multipart articles: physical line 3, immediately following =ypart.
-9. Complete the yEnc block with data lines and the =yend footer line,
-   writing the calculated ciphertext CRC in the pcrc32/crc32 parameter.
-
-Decryption Input: Password from NZB metadata and fetched article body.
-
-Decryption Steps:
-
-1. Check NZB provenance: verify <meta type="yenc_encrypted">true</meta> is
-   present in NZB header metadata.
-2. Parse the article body after NNTP dot-unstuffing into physical lines.
-3. Locate and validate the =yencryption header at physical line 2 (for
-   single-part) or physical line 3 (for multipart articles after =ypart).
-   Reject duplicate, missing, or misplaced =yencryption lines.
-4. Validate the header syntax: exactly five tokens, exact cipher name
-   "XChaCha20-Poly1305", lowercase 32-character hexadecimal salt, lowercase
-   8-character hexadecimal index (non-zero), and lowercase 32-character
-   hexadecimal tag.
-5. If control line encryption is also present, verify dual-bootstrap agreement:
-   the decoded 16-byte salt MUST match the raw 16-byte salt from Line 1, AND
-   the decoded segmentIndex MUST match the uint32_be segmentIndex from Line 1.
-6. Decode the yEnc data lines into raw ciphertext bytes.
-7. If the =yend line contains a crc32 or pcrc32 value, verify that the
-   CRC32 of the decoded ciphertext matches the wire CRC value. If it
-   does not match, reject as provider corruption.
-8. Derive the 256-bit decryption key and 192-bit nonce using the extracted
-   salt, NZB password, and the validated segmentIndex (uint32_be).
-9. Decrypt and authenticate the ciphertext using XChaCha20-Poly1305.
-10. On authentication success:
-    - Clear or suppress wire CRC metadata (set crc32 = None) so downstream
-      file assemblers and PAR2 verification engines do not reject plaintext.
-    - Release the authenticated plaintext binary data to file assembly.
-11. On authentication failure or CRC failure:
-    - Abort processing immediately and return zero bytes.
-    - Classify failure according to two-tier error rules (see Section 5).
+Header placement: for single-part articles, =yencryption is physical
+line 2, immediately following =ybegin. For multipart articles, =ypart
+is physical line 2 and =yencryption is physical line 3, immediately
+following =ypart. The header references the segmentIndex assigned to
+the segment.
 
 ----------------------------------------------------------------------
 4. Encryption Algorithm
@@ -477,14 +436,14 @@ Multipart yEnc Encoded Wire Block (Line 3 Placement):
   <yEnc-encoded ciphertext data lines>
   =yend size=18 part=1 pcrc32=d4a1b2c3
 
-Decryption Processing:
-1. Parse NZB metadata and detect <meta type="yenc_encrypted">true</meta>.
-2. Locate =yencryption header at line 2 (or line 3 if =ypart is line 2).
-3. Verify exact five tokens with lowercase hexadecimal salt, 8-hex index, and tag.
-4. Decode data lines and verify wire CRC against decoded ciphertext.
-5. Derive key and nonce using extracted index (segmentIndex=1) and execute XChaCha20-Poly1305.
-6. Poly1305 authentication verifies successfully.
-7. Clear wire CRC metadata (crc32 = None) and release original 18-byte binary plaintext.
+Decryption follows the authoritative procedure in Section 5: parse NZB
+metadata and detect <meta type="yenc_encrypted">true</meta>, locate the
+=yencryption header at line 2 (or line 3 if =ypart is line 2), verify the
+exact five tokens with lowercase hexadecimal salt, 8-hex index, and tag,
+decode data lines and verify wire CRC, derive key and nonce using the
+extracted index (segmentIndex=1), execute XChaCha20-Poly1305, then clear
+wire CRC metadata (crc32 = None) and release the original 18-byte binary
+plaintext.
 
 ----------------------------------------------------------------------
 11. Summary
