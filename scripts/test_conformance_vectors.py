@@ -11,7 +11,9 @@ Tests conformance against:
 """
 
 import hashlib
+import hmac
 import json
+import math
 import re
 import struct
 import sys
@@ -26,34 +28,194 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
         sys.path.insert(0, p)
 
 import argon2.low_level as ll
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+import nacl.bindings as nb
 import nacl.exceptions as ne
 
-try:
-    from scripts.generate_conformance_vectors import (
-        body_decrypt,
-        body_encrypt,
-        byte_to_numeral,
-        derive_body_nonce,
-        derive_control_keys,
-        derive_key,
-        extract_bootstrap_from_line1,
-        ff1_decrypt,
-        numeral_to_byte,
-        validate_dual_bootstrap,
+# ---------------------------------------------------------------------------
+# Embedded cryptographic verification primitives.
+#
+# These helpers are the canonical derivation, decryption, and validation
+# routines exercised by the conformance vectors below. They are embedded here
+# so the conformance suite runs standalone against the retained JSON fixtures
+# without depending on any vector-generation scaffolding.
+# ---------------------------------------------------------------------------
+
+
+def uint32_be(val: int) -> bytes:
+    """Serialize 32-bit unsigned integer in big-endian network byte order."""
+    if not (0 <= val <= 0xFFFFFFFF):
+        raise ValueError(f"Value {val} out of range for uint32_be")
+    return struct.pack(">I", val)
+
+
+def derive_key(password: str, salt: bytes) -> bytes:
+    """Derive 32-byte key using Argon2id RFC 9106 parameters."""
+    return ll.hash_secret_raw(
+        secret=password.encode("utf-8"),
+        salt=salt,
+        time_cost=1,
+        memory_cost=65536,  # 64 MiB
+        parallelism=4,
+        hash_len=32,
+        type=ll.Type.ID,
+        version=0x13,
     )
-except ImportError:
-    from generate_conformance_vectors import (
-        body_decrypt,
-        body_encrypt,
-        byte_to_numeral,
-        derive_body_nonce,
-        derive_control_keys,
-        derive_key,
-        extract_bootstrap_from_line1,
-        ff1_decrypt,
-        numeral_to_byte,
-        validate_dual_bootstrap,
-    )
+
+
+def derive_body_nonce(body_key: bytes, segment_index: int) -> bytes:
+    """Derive 24-byte nonce for XChaCha20-Poly1305 via 19-byte HMAC-SHA256 layout."""
+    message = b"yenc-body nonce" + uint32_be(segment_index)
+    return hmac.new(body_key, message, hashlib.sha256).digest()[:24]
+
+
+def derive_control_keys(master_key: bytes, segment_index: int, line_index: int):
+    """Derive 32-byte encKey and 8-byte tweak for FF1 control line encryption."""
+    enc_key = hmac.new(master_key, b"yenc-control key", hashlib.sha256).digest()
+    tweak_msg = b"yenc-control tweak" + uint32_be(segment_index) + uint32_be(line_index)
+    tweak = hmac.new(master_key, tweak_msg, hashlib.sha256).digest()[:8]
+    return enc_key, tweak
+
+
+def extract_bootstrap_from_line1(line1_bytes: bytes) -> tuple[bytes, int, bytes]:
+    """Extract salt (16B), uint32_be segmentIndex (4B), and ciphertext (>=2B) from Line 1."""
+    if len(line1_bytes) < 22:
+        raise ValueError("LINE_TRUNCATED")
+    salt = line1_bytes[:16]
+    for b in salt:
+        if b in (0x00, 0x0A, 0x0D):
+            raise ValueError("INVALID_SALT_CHARACTER")
+    seg_idx = struct.unpack(">I", line1_bytes[16:20])[0]
+    if seg_idx == 0:
+        raise ValueError("ZERO_SEGMENT_INDEX")
+    ciphertext = line1_bytes[20:]
+    return salt, seg_idx, ciphertext
+
+
+def validate_dual_bootstrap(line1_salt: bytes, line1_index: int, yenc_params: dict) -> bool:
+    """Verify byte-for-byte salt equality and value-for-value index equality."""
+    if line1_salt != yenc_params["salt"]:
+        raise ValueError("DUAL_SALT_MISMATCH")
+    if line1_index != yenc_params["segment_index"]:
+        raise ValueError("DUAL_INDEX_MISMATCH")
+    return True
+
+
+def body_encrypt(plaintext: bytes, key: bytes, nonce: bytes) -> tuple[bytes, bytes]:
+    """Encrypt payload using XChaCha20-Poly1305 producing ciphertext and 16B tag."""
+    ct_and_tag = nb.crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, None, nonce, key)
+    ciphertext = ct_and_tag[:-16]
+    tag = ct_and_tag[-16:]
+    return ciphertext, tag
+
+
+def body_decrypt(ciphertext: bytes, tag: bytes, key: bytes, nonce: bytes) -> bytes:
+    """Authenticate and decrypt payload; returns plaintext or raises error."""
+    ct_and_tag = ciphertext + tag
+    return nb.crypto_aead_xchacha20poly1305_ietf_decrypt(ct_and_tag, None, nonce, key)
+
+
+def byte_to_numeral(b: int) -> int:
+    """Map byte octet to numeral 0..252 per yEnc Control Lines Standard v1.1."""
+    if 0x01 <= b <= 0x09:
+        return b - 1
+    elif b == 0x0B:
+        return 9
+    elif b == 0x0C:
+        return 10
+    elif 0x0E <= b <= 0xFF:
+        return b - 3
+    raise ValueError(f"Byte 0x{b:02x} is outside the 253-byte Alphabet (0x00, 0x0A, 0x0D forbidden)")
+
+
+def numeral_to_byte(i: int) -> int:
+    """Map numeral 0..252 back to byte octet per yEnc Control Lines Standard v1.1."""
+    if 0 <= i <= 8:
+        return i + 1
+    elif i == 9:
+        return 0x0B
+    elif i == 10:
+        return 0x0C
+    elif 11 <= i <= 252:
+        return i + 3
+    raise ValueError(f"Numeral {i} is out of range [0, 252]")
+
+
+def num_radix(numerals: list[int], radix: int) -> int:
+    res = 0
+    for n in numerals:
+        res = res * radix + n
+    return res
+
+
+def str_radix(val: int, radix: int, m: int) -> list[int]:
+    res = [0] * m
+    for i in range(m):
+        res[m - 1 - i] = val % radix
+        val //= radix
+    return res
+
+
+def cbc_mac(aes_enc, data: bytes) -> bytes:
+    block = bytes(16)
+    for i in range(0, len(data), 16):
+        chunk = data[i : i + 16]
+        xored = bytes(a ^ b for a, b in zip(block, chunk))
+        block = aes_enc(xored)
+    return block
+
+
+def ff1_decrypt_numerals(key: bytes, tweak: bytes, numerals: list[int], radix: int = 253) -> list[int]:
+    """NIST SP 800-38G FF1 Decryption over arbitrary numeral strings."""
+    backend = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
+    aes_enc = backend.update
+    n = len(numerals)
+    t = len(tweak)
+    u = n // 2
+    v = n - u
+    b = math.ceil(math.ceil(v * math.log2(radix)) / 8)
+    d = 4 * math.ceil(b / 4) + 4
+
+    p = bytearray(16)
+    p[0], p[1], p[2] = 1, 2, 1
+    p[3:6] = radix.to_bytes(3, "big")
+    p[6] = 10
+    p[7] = u % 256
+    p[8:12] = n.to_bytes(4, "big")
+    p[12:16] = t.to_bytes(4, "big")
+
+    pad_len = ((-t - b - 1) % 16 + 16) % 16
+    q_prefix = tweak + bytes(pad_len)
+
+    A = list(numerals[:u])
+    B = list(numerals[u:])
+
+    for round_idx in range(10):
+        i = 9 - round_idx
+        q = q_prefix + bytes([i]) + num_radix(A, radix).to_bytes(b, "big")
+        R = cbc_mac(aes_enc, bytes(p) + q)
+        S = bytearray(R)
+        j = 1
+        while len(S) < d:
+            j_bytes = j.to_bytes(16, "big")
+            blk = bytes(a ^ b for a, b in zip(R, j_bytes))
+            S.extend(aes_enc(blk))
+            j += 1
+        y = int.from_bytes(S[:d], "big")
+        m = u if i % 2 == 0 else v
+        c = (num_radix(B, radix) - y) % (radix**m)
+        C = str_radix(c, radix, m)
+        B = A
+        A = C
+
+    return A + B
+
+
+def ff1_decrypt(key: bytes, tweak: bytes, ciphertext_bytes: bytes, radix: int = 253) -> bytes:
+    """Decrypt control line byte string using FF1 over Radix 253 Alphabet."""
+    numerals = [byte_to_numeral(b) for b in ciphertext_bytes]
+    pt_numerals = ff1_decrypt_numerals(key, tweak, numerals, radix)
+    return bytes(numeral_to_byte(i) for i in pt_numerals)
 
 
 def parse_yencryption_line_v11(line: str) -> dict:
