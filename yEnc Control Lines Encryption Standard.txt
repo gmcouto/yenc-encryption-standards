@@ -17,6 +17,21 @@ required for Usenet transmission.
 ----------------------------------------------------------------------
 Change Log:
 
+2026-10-03 (editorial, cycle 1 adversarial review):
+- Defined "release" in the zero-output rule to cover any transfer to another
+  component or stage, not only the final file write (C1-01).
+- Classified restored-header restore failures (other than Line 1 and Line N)
+  and header/data boundary disagreements as PROVIDER_FAILOVER (C1-03).
+- Bound the header decryption loop to stop before lineIndex = N so the footer
+  is never decrypted twice, and specified the no-data-line outcome (C1-11).
+- Defined uniform Alphabet salt sampling and prohibited biased reduction in
+  both the parameters and the encryption procedure (C1-05).
+- Named the two error tiers with the METADATA_VALIDATION and PROVIDER_FAILOVER
+  identifiers used by the README (C1-06, C1-08).
+- Stated that =yencryption line placement is checked positionally and is
+  unaffected by whether the check runs before or after restoration (C1-14).
+  No wire-semantic change; version remains v1.1.
+
 Version 1.1 (2026-10-01):
 - Specified 20-byte article bootstrap prefix prepended to Line 1:
   16-byte raw Alphabet salt followed by 4-byte big-endian uint32 segmentIndex.
@@ -228,8 +243,13 @@ Algorithm: FF1 (NIST SP 800-38G compliant Format-Preserving Encryption)
 Parameters:
   - Alphabet: 253 printable characters (see Section 2)
   - Block cipher: AES-256
-  - Salt: 16-byte random value from Alphabet (use cryptographically secure RNG)
-  - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
+   - Salt: 16-byte random value sampled uniformly from the 253 Alphabet
+     bytes (use cryptographically secure RNG). Every salt byte MUST be
+     drawn from Alphabet. Reducing a full byte range modulo 253 without
+     rejection produces a non-uniform salt and MUST NOT be used;
+     rejection sampling, which re-draws any forbidden value, remains
+     uniform and is permitted.
+   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output)
   - Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" ||
     uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
@@ -238,8 +258,10 @@ Parameters:
 
 Procedure (applied to each yEnc control line individually):
 
-  a. Generate salt = Random 16-byte value from Alphabet (once per
-     upload session, use cryptographically secure RNG).
+   a. Generate salt = Random 16-byte value sampled uniformly from the
+      253 Alphabet bytes (once per upload session, use cryptographically
+      secure RNG; use rejection sampling, drawing again on any byte
+      outside Alphabet).
   b. Derive masterKey = Argon2id(password, salt, time=1, memory=64MB,
      threads=4, 256-bit output).
   c. Derive encKey = HMAC-SHA256(masterKey, "yenc-control key").
@@ -292,7 +314,12 @@ Decryption Steps:
       classify error per two-tier error rules.
    h. Replace line 1 encrypted content with decrypted content.
 4. Process subsequent header lines (lineIndex = 2, 3, ...):
-   a. For each physical line before data lines (lineIndex=2, 3, ...):
+   a. For each physical line before data lines (lineIndex=2, 3, ...),
+      stopping at lineIndex = N - 1 at the latest. The footer line
+      (lineIndex = N) is always handled by step 6 and MUST NOT be
+      decrypted by this loop; a header loop that reaches lineIndex = N
+      without finding a data line means the block has no data lines, and
+      the loop ends without a result for line N.
       - Extract line content (excluding line terminators).
       - Derive tweak using extracted salt, extracted segmentIndex, and
         current lineIndex.
@@ -304,7 +331,11 @@ Decryption Steps:
           - Assert dual-bootstrap agreement: decoded header salt MUST match
             Line 1 raw salt byte-for-byte, AND decoded header index MUST match
             Line 1 segmentIndex value-for-value.
-          - Verify line placement (line 2 for single-part, line 3 for multipart).
+          - Verify line placement (line 2 for single-part, line 3 for
+            multipart). Placement is checked against the physical position
+            of the line, before or after decryption, because FF1 preserves
+            line length and position; the check is on position, not content,
+            so both orders agree.
           - If unequal, fail closed immediately with PROVIDER_FAILOVER.
         * Replace line content with decrypted content.
         * Continue to next line (increment lineIndex by 1).
@@ -312,6 +343,12 @@ Decryption Steps:
         * This line is the first data line (lineIndex = D).
         * Restore original line content untouched.
         * Stop header decryption loop.
+   b. Any other outcome of the header loop is provider corruption and MUST
+      be classified as PROVIDER_FAILOVER: a restored header line other than
+      Line 1 or Line N that does not begin with "=y" (where a header was
+      expected before the first data line), or a line decrypted where a data
+      line was expected that does begin with "=y" and disagrees with the
+      header/data boundary. These cases are not structural failures.
 5. Pass through data lines (lineIndex = D through N - 1):
    - Leave all data lines untouched, incrementing lineIndex for each 1-based
      physical line.
@@ -327,6 +364,11 @@ Decryption Steps:
 8. Reconstruct the complete yEnc block with original line endings.
 
 Two-Tier Error Handling:
+
+The provider-corruption tier is identified as PROVIDER_FAILOVER and the
+structural tier as METADATA_VALIDATION in error surfaces; these identifiers
+name the two tiers defined below and are used consistently with the
+README and with the body standard.
 
 An implementation MUST classify a failure by the input that failed validation.
 The structural tier applies to NZB metadata and configuration obtained before
@@ -355,7 +397,10 @@ classified in both tiers.
      contains an unsupported cipher token other than XChaCha20-Poly1305.
    - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
    - Wire CRC mismatch, Poly1305 authentication failure, truncation, or other
-     article-body corruption.
+      article-body corruption.
+   - A restored header line other than Line 1 or Line N that does not begin
+     with "=y" where a header was expected, or a header/data boundary
+     disagreement produced by the header loop (step 4b).
    Action: Mark the article corrupt and try an eligible alternate provider.
    After all eligible providers fail, mark the segment failed so normal repair
    policy can run.
@@ -363,8 +408,12 @@ classified in both tiers.
 
 A decoder MUST NOT release or write unauthenticated plaintext or ciphertext
 to a target file, cache visible to downstream stages, or subsequent pipeline
-stage. It MAY retain article-sized working buffers until validation completes
-and MUST discard them on failure.
+stage. Release means any transfer of restored control-line content or
+decrypted body bytes to another component, stream, pipe, buffer shared with
+another stage, or observable sink, not only the final file write. Partial
+release during decryption, before validation completes, is a violation of
+this rule. It MAY retain article-sized working buffers until validation
+completes and MUST discard them on failure.
 
 ----------------------------------------------------------------------
 6. Length Properties

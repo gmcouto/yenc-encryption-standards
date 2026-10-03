@@ -36,9 +36,7 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- <!link http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd> -->
-<!-- <newzbin dtd> -->
-<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+<nzb xmlns="http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
   <head>
     <meta type="password">correct horse battery staple</meta>
     <meta type="yenc_encrypted">true</meta>
@@ -71,7 +69,7 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
+<nzb xmlns="http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
   <head>
     <meta type="password">archive_extraction_password</meta>
   </head>
@@ -159,7 +157,7 @@ Because AEAD authentication must finish before plaintext release, an implementat
 
 ## Status
 
-Both specifications are published as experimental v1.1 wire contracts (v1.1 Experimental) dated 2026-10-01. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
+Both specifications are published as experimental v1.1 wire contracts (v1.1 Experimental) dated 2026-10-01. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF, while the control standard's salt is sampled uniformly from its 253-byte Alphabet. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
 
 ## Contributing
 

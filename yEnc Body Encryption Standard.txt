@@ -16,6 +16,22 @@ of the transmitted data.
 ----------------------------------------------------------------------
 Change Log:
 
+2026-10-03 (editorial, cycle 1 adversarial review):
+- Defined "release" in the zero-output rule to cover any transfer to another
+  component or stage, not only the final file write, closing a partial-
+  plaintext leak reading (C1-01).
+- Stated explicitly that the wire CRC covers ciphertext, that CRC verification
+  precedes AEAD authentication, and that a CRC pass permits no release before
+  authentication succeeds (C1-02).
+- Named the PROVIDER_FAILOVER action for a dual-salt/dual-index mismatch in
+  Section 5 step 3 so the body procedure matches the control standard (C1-04).
+- Stated that a missing, truncated, or mis-sized =yencryption line is provider
+  corruption, not a structural failure (C1-09, C1-13).
+- Stated the body salt domain is the full byte range 0x00..0xFF, unlike the
+  control standard's Alphabet restriction (C1-07).
+- Associated the provider-corruption tier with the PROVIDER_FAILOVER identifier
+  (C1-06). No wire-semantic change; version remains v1.1.
+
 Version 1.1 (2026-10-01):
 - Expanded canonical =yencryption header grammar to five space-separated tokens:
   =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>.
@@ -158,7 +174,9 @@ Algorithm: XChaCha20-Poly1305 (RFC 8439 Extended)
 Parameters:
   - Cipher: XChaCha20 (256-bit key, 192-bit nonce)
   - Authentication: Poly1305 (128-bit tag)
-  - Salt: 16-byte random value (generated via cryptographically secure RNG)
+  - Salt: 16-byte random value over the full byte domain 0x00..0xFF
+    (generated via cryptographically secure RNG). Unlike the control lines
+    standard, the body salt is not restricted to the 253 Alphabet bytes.
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output)
   - Nonce derivation: HMAC-SHA256(key, "yenc-body nonce" ||
@@ -232,17 +250,32 @@ NZB metadata.
 Decryption Processing:
 
 1. Parse the yEnc block and locate the =yencryption header at line 2
-   (single-part) or line 3 (multipart).
+   (single-part) or line 3 (multipart). A missing, incomplete, or truncated
+   =yencryption line at the expected position is provider corruption (see
+   the retriable tier below), not a structural failure; the failure classes
+   are named by the malformed-input taxonomy (for example MISPLACED_
+   ENCRYPTION_HEADER or LINE_TRUNCATED) and retry is permitted.
 2. Validate that the line conforms strictly to the five tokens grammar
    with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, valid
    lowercase 8-hex index (non-zero), and valid lowercase 32-hex tag.
+   The line content must be exactly 128 bytes excluding CRLF; a shorter
+   or longer line fails the grammar check as a truncation or extension
+   defect and MUST be treated as provider corruption.
 3. In dual-encrypted mode, assert that the 16-byte decoded salt equals
    the restored Line 1 raw salt, and the decoded index equals the restored
-   Line 1 segmentIndex. If unequal, fail closed.
+   Line 1 segmentIndex. If unequal, fail closed with PROVIDER_FAILOVER
+   (the retriable tier defined below): mark the article corrupt and try an
+   eligible alternate provider.
 4. Decode yEnc data lines to extract ciphertext bytes.
-5. Verify wire CRC against ciphertext bytes if present in =yend.
+5. Verify wire CRC against ciphertext bytes if present in =yend. The wire
+   CRC is computed over the decoded ciphertext bytes, never over plaintext.
+   CRC verification MUST precede AEAD authentication, and passing the CRC
+   check confers no permission to release bytes: the zero-output rule below
+   remains in force until authentication succeeds.
 6. Derive key and nonce using password, salt, and segmentIndex (uint32_be).
-7. Authenticate and decrypt ciphertext using XChaCha20-Poly1305.
+7. Authenticate and decrypt ciphertext using XChaCha20-Poly1305. If
+   authentication fails, no CRC result observed in step 5 changes the
+   outcome: the article fails as provider corruption.
 8. On authentication success, discard or clear wire CRC metadata
    (crc32 = None) and forward decrypted plaintext to assembly/PAR2.
 
@@ -282,8 +315,12 @@ This rule prevents the same article defect from being classified in both tiers.
 Zero-Output Rule:
 Decoders and download clients MUST NOT release or write unauthenticated
 plaintext or ciphertext to a target file, cache visible to downstream stages,
-or subsequent pipeline stage. An implementation MAY retain article-sized
-working buffers until validation completes and MUST discard them on failure.
+or subsequent pipeline stage. Release means any transfer of those bytes to
+another component, stream, pipe, buffer shared with another stage, or
+observable sink, not only the final file write. Partial release during
+decryption, before authentication completes, is a violation of this rule.
+An implementation MAY retain article-sized working buffers until validation
+completes and MUST discard them on failure.
 
 ----------------------------------------------------------------------
 6. Length Properties
