@@ -210,28 +210,15 @@ When control line encryption is combined with body encryption:
 - Control line encryption processes the yEnc block after the =yencryption
   line has been inserted.
 
-Encryption Steps:
+Encryption Input: Complete yEnc block with any line endings (LF or CRLF),
+password, and the segmentIndex assigned to this segment.
 
-1. Split the yEnc block into individual lines after NNTP dot-unstuffing,
-   preserving line ending information for reconstruction.
-2. Initialize lineIndex = 1.
-3. Process lines sequentially, incrementing lineIndex on every physical line:
-   a. For lines beginning with "=y":
-      - Extract line content (excluding terminators).
-      - Encrypt line content using FF1 with lineIndex-specific tweak.
-      - For lineIndex=1 (the first physical line): prepend the 20-byte
-        article bootstrap (16-byte raw salt from Alphabet followed by
-        4-byte uint32_be segmentIndex) to the ciphertext.
-      - Replace original line content with encrypted content (including
-        prepended 20-byte bootstrap for line 1).
-   b. For lines not beginning with "=y":
-      - Leave data line content untouched.
-   c. Increment lineIndex by 1 for the next 1-based physical line (whether
-      control line or data line).
-4. Preserve all line terminators and data lines exactly as received.
-
-This approach encrypts yEnc control information (headers/footers)
-while preserving data line integrity and overall structure.
+Encryption follows the authoritative procedure in Section 4, applied to
+each yEnc control line individually. Lines are split after NNTP
+dot-unstuffing, preserving line ending information for reconstruction,
+incrementing lineIndex on every physical line, whether control line or
+data line. Data lines are left untouched, and all line
+terminators and data lines are preserved exactly as received.
 
 ----------------------------------------------------------------------
 4. Encryption Algorithm
@@ -292,18 +279,18 @@ Decryption Steps:
    a. Extract line 1 content (excluding line terminators).
    b. Verify line 1 contains at least 22 bytes (20-byte bootstrap + minimum
       2-byte FF1 ciphertext). If shorter, reject as LINE_TRUNCATED.
-   c. Extract 16-byte raw salt from bytes 0..15; assert no forbidden bytes
-      (0x00, 0x0A, 0x0D).
-   d. Extract 4-byte unsigned big-endian segmentIndex from bytes 16..19
-      (uint32_be); assert segmentIndex is in range 1..=4294967295 (reject
-      zero as ZERO_SEGMENT_INDEX).
-   e. Remove 20-byte bootstrap prefix (bytes 20.. are the FF1 ciphertext).
-   f. Derive masterKey, encKey, and tweak using extracted salt, extracted
+   c. Extract the 16-byte raw salt and the 4-byte big-endian segmentIndex
+      from the 20-byte bootstrap prefix (the layout defined in Sections 2
+      and 4), asserting no forbidden bytes (0x00, 0x0A, 0x0D) and a
+      segmentIndex in range 1..=4294967295 (reject zero as
+      ZERO_SEGMENT_INDEX).
+   d. Remove the 20-byte bootstrap prefix (bytes 20.. are the FF1 ciphertext).
+   e. Derive masterKey, encKey, and tweak using extracted salt, extracted
       segmentIndex, and lineIndex=1.
-   g. Apply FF1 decryption over the 253-character Alphabet.
-   h. Verify decrypted content starts with "=ybegin". If it does not,
+   f. Apply FF1 decryption over the 253-character Alphabet.
+   g. Verify decrypted content starts with "=ybegin". If it does not,
       classify error per two-tier error rules.
-   i. Replace line 1 encrypted content with decrypted content.
+   h. Replace line 1 encrypted content with decrypted content.
 4. Process subsequent header lines (lineIndex = 2, 3, ...):
    a. For each physical line before data lines (lineIndex=2, 3, ...):
       - Extract line content (excluding line terminators).
@@ -477,17 +464,9 @@ Decoupling of Presentation Metadata:
 - Any FF1 implementation conforming to NIST SP 800-38G may be used
   if it supports custom alphabets.
 - Implementations MUST use the canonical 253-byte Alphabet numeral
-  bijection specified in Section 2:
-    Mapping byte octets b to numerals I in [0, 252]:
-      - For b in [0x01, 0x09]:   I = b - 1  (numerals 0..8)
-      - For b = 0x0B:            I = 9
-      - For b = 0x0C:            I = 10
-      - For b in [0x0E, 0xFF]:   I = b - 3  (numerals 11..252)
-    Reverse mapping numerals I in [0, 252] to byte octets b:
-      - For I <= 8:              b = I + 1
-      - For I = 9:               b = 0x0B
-      - For I = 10:              b = 0x0C
-      - For I >= 11:             b = I + 3
+  bijection specified in Section 2, including its forward mapping
+  (byte octets b to numerals I in [0, 252]) and reverse mapping
+  (numerals I to byte octets b).
 - Physical Line Indexing: Line indices are counted on 1-based physical
   lines after NNTP dot-unstuffing has been applied.
 - Line Terminators: Canonical yEnc generators emit CRLF (0x0D 0x0A).
