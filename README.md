@@ -36,7 +36,7 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<nzb xmlns="http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
   <head>
     <meta type="password">correct horse battery staple</meta>
     <meta type="yenc_encrypted">true</meta>
@@ -69,7 +69,7 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<nzb xmlns="http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
   <head>
     <meta type="password">archive_extraction_password</meta>
   </head>
@@ -90,10 +90,10 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 ### Segment Identity Rules
 
 - `number` is the standard NZB 1.1 1-based part number within the file.
-- `segmentIndex` is an explicit unsigned 32-bit integer in range `1..=4294967295` encoded in article bootstrap bytes (Line 1 prefix and =yencryption index parameter).
+- `segmentIndex` is an explicit unsigned 32-bit integer in range `1..=4294967295` encoded in article bootstrap bytes: carried in the `=yencryption index parameter` and also in Line 1 bytes 16..19 only when control line encryption is also applied.
 - Formatting is a 4-byte big-endian integer on Line 1 and an 8-character lowercase hexadecimal string in =yencryption.
 - Each segmentIndex is globally unique across the entire upload session.
-- NZB segment tags contain no custom XML attributes; downloaders extract segment identity directly from article bytes.
+- NZB segment tags contain no custom XML attributes; downloaders extract segment identity directly from article bytes. Readers MUST accept both canonical NZB namespaces, http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd, or match elements irrespective of namespace prefixing.
 - NNTP headers, file subjects, and XML (file or segment) ordering carry no cryptographic meaning.
 
 ## Processing and Failure Rules

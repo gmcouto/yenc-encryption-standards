@@ -16,6 +16,18 @@ of the transmitted data.
 ----------------------------------------------------------------------
 Change Log:
 
+2026-10-03 (editorial, post-cycle adversarial review remediation):
+- Remediated Section 10 worked example to use canonical authentication tag
+  from fixture body-vec-01-spec-example (CR-01).
+- Scoped segmentIndex carriage in Section 2 and Section 8 to distinguish
+  body-only mode from combined mode (WR-02).
+- Added explicit METADATA_VALIDATION and PROVIDER_FAILOVER tier naming in
+  Section 5 matching the README and control standard (WR-03).
+- Specified dual-namespace acceptance in Section 8 and updated Section 10
+  example to the canonical NZB namespace (WR-04).
+- Corrected Section 10 wire CRC to canonical crc32=b3185887 and annotated
+  multipart pcrc32 as illustrative (IN-02).
+
 2026-10-03 (editorial, cycle 3 adversarial review):
 - Corrected the Section 10 worked example: the payload is 16 bytes (matching
   the canonical fixture), and its =ybegin/=yend sizes, NZB bytes attribute,
@@ -151,10 +163,12 @@ and transport integrity are required across Usenet distribution networks.
 
   segmentIndex:
     An unsigned 32-bit integer in the range 1..=4294967295 carried
-    in the article bootstrap (the index parameter of =yencryption and
-    bytes 16..19 of Line 1 prefix). It provides unique nonce values
-    for every segment across the upload session without file-boundary
-    arithmetic or NZB XML dependencies.
+    in the article bootstrap. In combined mode it appears both as the
+    index parameter of =yencryption and as bytes 16..19 of the Line 1
+    prefix. In body-only mode the article has no Line 1 prefix, so the
+    value is carried solely in the =yencryption index parameter. It
+    provides unique nonce values for every segment across the upload
+    session without file-boundary arithmetic or NZB XML dependencies.
 
   yenc_encrypted Provenance:
     An explicit metadata flag in the NZB <head> section defined as
@@ -292,6 +306,12 @@ reject multiple =yencryption lines in one article.
 
 ----------------------------------------------------------------------
 5. Decryption and Error Handling
+
+Error Classification Naming:
+The non-retriable structural tier is designated METADATA_VALIDATION and the
+retriable provider-corruption tier is designated PROVIDER_FAILOVER, matching
+the identifier naming used consistently in the README and yEnc Control Lines
+Encryption Standard.
 
 Input: Fetched yEnc block with encrypted binary data, password from the
 NZB metadata.
@@ -436,8 +456,7 @@ For an encrypted upload, the NZB writer MUST:
 1. Emit <meta type="yenc_encrypted">true</meta> in the <head> section.
 2. Emit <meta type="password">...</meta> with the transport password.
 3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only.
-4. Embed the 1-based segmentIndex into the article bootstrap (Line 1 prefix
-   and =yencryption index parameter).
+4. Embed the 1-based segmentIndex into the article bootstrap: the =yencryption index parameter always, and the Line 1 prefix bytes 16..19 only when combined with control line encryption.
 5. Ensure each encrypted article has a unique segmentIndex within the upload session.
 6. Assign indices continuously starting from 1 for fresh uploads.
 7. Preserve an article's assigned index across retries, reposts, and resume.
@@ -447,8 +466,10 @@ An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
 2. Read <meta type="password"> for the transport password.
 3. Treat <segment> elements as standard NZB 1.1 records without expecting
-   custom XML attributes.
-4. Extract segmentIndex and salt directly from fetched article bootstrap bytes.
+   custom XML attributes; encryption-aware readers MUST accept both canonical NZB namespaces,
+   http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
+   or match <segment> and other elements irrespective of default XML namespace prefixing.
+4. Extract segmentIndex and salt directly from fetched article bootstrap bytes: body-only mode reads the =yencryption header while combined mode verifies the Line 1 prefix.
 5. Use the extracted segmentIndex for body nonce derivation.
 
 Decoupling of Presentation Metadata:
@@ -487,7 +508,7 @@ Corresponding Clean NZB 1.1 XML:
 
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
-<nzb xmlns="http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
+<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">
   <head>
     <meta type="yenc_encrypted">true</meta>
     <meta type="password">test123</meta>
@@ -511,17 +532,21 @@ Derived parameters:
 Single-Part yEnc Encoded Wire Block (Line 2 Placement):
 
   =ybegin line=128 size=16 name=file.bin
-  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
+  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=0cd77ce245a654463f90b945b1d22d5b
   <yEnc-encoded ciphertext data lines>
-  =yend size=16 crc32=d4a1b2c3
+  =yend size=16 crc32=b3185887
 
 Multipart yEnc Encoded Wire Block (Line 3 Placement):
 
   =ybegin part=1 total=2 line=128 size=16 name=file.bin
   =ypart begin=1 end=8
-  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=a1b2c3d4e5f6789a0b1c2d3e4f567890
+  =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=0cd77ce245a654463f90b945b1d22d5b
   <yEnc-encoded ciphertext data lines>
   =yend size=8 part=1 pcrc32=d4a1b2c3
+
+The multipart =yend pcrc32=d4a1b2c3 value is illustrative only: no canonical
+fixture CRC exists for the 8-byte ciphertext fragment, so it MUST NOT be
+treated as a verifiable conformance value.
 
 Decryption follows the authoritative procedure in Section 5: parse NZB
 metadata and detect <meta type="yenc_encrypted">true</meta>, locate the
