@@ -1,0 +1,28 @@
+version: 2
+secret:
+  ignored_matches:
+    - name: test-vector-master-key
+      match: de3bfc39034371d589b34d485c572c12ce2ac6d4464adaea47fc1fb1e0fbfbd3
+    - name: test-vector-derived-key-basic
+      match: 5dd5a3371f80a50eb96feb11787dd4567a09b55655aa3c2b1596bf2d45c9a6d7
+    - name: test-vector-enc-key
+      match: ad675564c3a679ff633bd2503f24209903fc440818c7ae39c7646df91857fb93
+    - name: test-vector-complex-password-key
+      match: f3b358755d7036115673c2e1af1d5fc7052c8861e331bece7ec9908863e1407b
+    - name: test-vector-utf8-unicode-key
+      match: 8bceca5d02e6a8c87fd0de85da52e34657f1a60eb181883aa447c1ef0c40e283
+    - name: test-vector-single-char-key
+      match: 32876118c269f03f6fe51d63ace5918555d8218e08cea87af262aca9c9064cfd
+    - name: test-vector-long-password-key
+      match: 1743d4b5614edb4e0aac20e9a74474fd3d2fe84f20cc4093369b9fe2a1546b7a
+    - name: test-password-basic
+      match: test123
+    - name: test-password-placeholder
+      match: your_encryption_password
+    - name: test-password-xkcd
+      match: correct horse battery staple
+    - name: test-password-archive
+      match: archive_extraction_password
+  ignored_paths:
+    - "test-vectors/**"
+    - "scripts/**"
