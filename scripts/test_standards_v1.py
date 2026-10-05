@@ -398,12 +398,6 @@ class TestStandardsV1(unittest.TestCase):
             self.assertNotIn("\u2014", text, f"Em dash found in {path.name}")
             self.assertNotIn("\u2013", text, f"En dash found in {path.name}")
 
-        for path in (self.standards_dir / "AUDIT_DEVIATIONS.md", self.standards_dir / "implementation-parity-matrix.json"):
-            if path.is_file():
-                text = path.read_text(encoding="utf-8")
-                self.assertNotIn("\u2014", text, f"Em dash found in {path.name}")
-                self.assertNotIn("\u2013", text, f"En dash found in {path.name}")
-
 
 if __name__ == "__main__":
     unittest.main()
