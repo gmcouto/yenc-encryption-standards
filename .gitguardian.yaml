@@ -15,8 +15,6 @@ secret:
       match: 32876118c269f03f6fe51d63ace5918555d8218e08cea87af262aca9c9064cfd
     - name: test-vector-long-password-key
       match: 1743d4b5614edb4e0aac20e9a74474fd3d2fe84f20cc4093369b9fe2a1546b7a
-    - name: test-password-basic
-      match: test123
     - name: test-password-placeholder
       match: your_encryption_password
     - name: test-password-xkcd
