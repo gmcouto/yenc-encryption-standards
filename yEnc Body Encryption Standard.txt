@@ -1,6 +1,6 @@
 SPECIFICATION: yEnc Body Encryption Standard
 Version: 1.0
-Date: 2026-09-27
+Date: 2026-10-01
 Author: Independent Specification
 
 Status: Frozen Wire Contract (v1.0)
@@ -15,6 +15,13 @@ of the transmitted data.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.0 (2026-10-01):
+- Clarified that in Combined Mode, random salt must be sampled from the
+  253-byte Alphabet (excluding NUL, LF, and CR) using rejection sampling
+  to uphold the Dual-Salt Agreement and preserve Line 1 boundaries.
+- Affirmed that 0-byte binary payloads are fully valid, producing 0 bytes
+  of ciphertext with a valid 16-byte Poly1305 authentication tag.
 
 Version 1.0 (2026-09-27):
 - Defined NZB provenance marker <meta type="yenc_encrypted">true</meta>
@@ -118,6 +125,10 @@ and transport integrity are required across Usenet distribution networks.
     When control line encryption and body encryption are combined,
     the 16-byte raw salt prepended to Line 1 and the 16-byte salt
     encoded in the =yencryption header MUST be byte-for-byte identical.
+    To uphold this agreement without injecting line terminators into
+    Line 1, the 16-byte random salt in Combined Mode MUST be sampled
+    from the 253-byte Alphabet (excluding NUL 0x00, LF 0x0A, and CR 0x0D)
+    via rejection sampling.
 
 ----------------------------------------------------------------------
 3. Processing Procedure
@@ -182,7 +193,9 @@ Algorithm: XChaCha20-Poly1305 (RFC 8439 Extended)
 Parameters:
   - Cipher: XChaCha20 (256-bit key, 192-bit nonce)
   - Authentication: Poly1305 (128-bit tag)
-  - Salt: 16-byte random value (generated via cryptographically secure RNG)
+  - Salt: 16-byte random value (generated via cryptographically secure RNG;
+    in Combined Mode with control-line encryption, sampled from the 253-byte
+    Alphabet excluding 0x00 NUL, 0x0A LF, and 0x0D CR via rejection sampling)
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output)
   - Nonce derivation: HMAC-SHA256(key, "yenc-body nonce" ||
@@ -194,7 +207,9 @@ Parameters:
 Procedure:
 
   a. Generate salt = Random 16-byte value (once per upload session,
-     use cryptographically secure RNG).
+     using a cryptographically secure RNG. In Combined Mode with
+     control-line encryption, sample each byte from the 253-byte Alphabet
+     via rejection sampling to preserve Line 1 boundaries).
   b. Derive key = Argon2id(password, salt, time=1, memory=64MB,
      threads=4, 256-bit output).
   c. Derive nonce = HMAC-SHA256(key, "yenc-body nonce" ||
@@ -214,7 +229,9 @@ Procedure:
      XChaCha20.
   d. Encrypt binary payload using XChaCha20-Poly1305 with derived
      key and nonce, producing ciphertext and 128-bit authentication
-     tag.
+     tag. Zero-byte (0-byte) binary payloads are fully valid; encrypting
+     an empty payload produces 0 bytes of ciphertext and a valid 16-byte
+     Poly1305 authentication tag.
   e. Apply yEnc encoding to the ciphertext only (excluding the tag).
   f. Insert the =yencryption header defined below.
 
@@ -313,6 +330,8 @@ working buffers until validation completes and MUST discard them on failure.
 
 - Encrypted binary data has the exact same length as original binary payload
   (Poly1305 authentication tag is stored in the header, not in payload).
+  A 0-byte binary payload yields 0 bytes of ciphertext with a valid 16-byte
+  tag; decoders verify the tag and release 0 bytes of plaintext.
 - yEnc encoding adds standard yEnc overhead (~1-2% typical expansion).
 - Exactly one =yencryption control line is added to the yEnc block header.
 - The size parameter in =ybegin and =yend reflects the ciphertext size,

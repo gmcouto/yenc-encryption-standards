@@ -1,6 +1,6 @@
 SPECIFICATION: yEnc Control Lines Encryption Standard
 Version: 1.0
-Date: 2026-09-27
+Date: 2026-10-01
 Author: Independent Specification
 
 Status: Frozen Wire Contract (v1.0)
@@ -15,6 +15,17 @@ character range required for Usenet transmission.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.0 (2026-10-01):
+- Clarified that 16-byte block length expansion applies to control-line
+  encryption in isolation, whereas Combined Mode expands by 16 bytes plus the
+  inserted =yencryption header line (113 bytes content + line terminator,
+  yielding 131 bytes total expansion for CRLF).
+- Specified that Line 1 must contain at least 18 bytes (16 bytes raw salt plus
+  minimum 2 bytes FF1 ciphertext per NIST SP 800-38G minlen=2), failing closed
+  as provider corruption if shorter.
+- Clarified that header line restoration may be bounded to lines 2 and 3
+  because lines 4 through N-1 are guaranteed data lines.
 
 Version 1.0 (2026-09-27):
 - Synchronized shared wire semantics with yEnc Body Encryption Standard.
@@ -97,7 +108,11 @@ It is intended for use in single or multipart binary uploads or
 segment encryption, where yEnc control lines are encrypted while
 preserving the overall yEnc structure and leaving data lines
 unmodified. The overall yEnc block length increases by exactly 16 bytes
-due to the salt prepended to the first line.
+due to the salt prepended to the first line when control-line encryption
+is used in isolation. In Combined Mode with body encryption, the insertion
+of the =yencryption header line adds an additional 113 bytes plus line
+terminator (such as 115 bytes for CRLF), resulting in an overall block
+expansion of 131 bytes.
 
 ----------------------------------------------------------------------
 2. Definitions
@@ -272,10 +287,14 @@ Decryption Steps:
 2. Split the dot-unstuffed yEnc block into individual lines, preserving
    line endings (accepting CRLF and bare LF).
 3. Process line 1 (lineIndex=1) to extract salt:
-   a. Extract line 1 content (excluding line terminators).
+   a. Extract line 1 content (excluding line terminators). Verify that line 1
+      content contains at least 18 bytes (16 bytes of raw salt prefix plus a
+      minimum of 2 bytes of FF1 ciphertext, per NIST SP 800-38G minlen=2 for
+      Radix 253). If line 1 content is shorter than 18 bytes, fail closed as
+      retriable provider corruption.
    b. Extract 16-byte raw salt from the first 16 bytes of line 1.
-   c. Remove salt prefix from line 1 content (remaining bytes are
-      the FF1 ciphertext).
+   c. Remove salt prefix from line 1 content (remaining bytes, minimum 2,
+      are the FF1 ciphertext).
    d. Derive masterKey, encKey, and tweak using extracted salt,
       segmentIndex obtained from the NZB segment element, and lineIndex=1.
    e. Apply FF1 decryption over the 253-character Alphabet.
@@ -300,6 +319,12 @@ Decryption Steps:
         * This line is the first data line (lineIndex = D).
         * Restore original line content untouched.
         * Stop header decryption loop.
+   b. Header Restoration Bounds:
+      Single-part articles place =yencryption at Line 2 (data begins at Line 3),
+      while multipart articles place =ypart at Line 2 and =yencryption at Line 3
+      (data begins at Line 4). Implementations MAY bound header restoration
+      explicitly to lines 2 and 3, because lines 4 through N-1 are guaranteed
+      to be data lines.
 5. Pass through data lines (lineIndex = D through N - 1):
    - Leave all data lines untouched, incrementing lineIndex for each 1-based
      physical line.
@@ -357,12 +382,19 @@ and MUST discard them on failure.
 6. Length Properties
 
 - The first encrypted yEnc control line (lineIndex=1) expands by
-  exactly 16 bytes due to the prepended random salt.
+  exactly 16 bytes due to the prepended random salt. Because NIST SP 800-38G
+  requires radix^minlen >= 100 (minlen=2 for Radix 253), Line 1 must contain
+  at least 18 bytes (16 bytes salt plus minimum 2 bytes ciphertext); lines
+  shorter than 18 bytes fail closed as provider corruption.
 - All subsequent encrypted yEnc control lines (lineIndex > 1) preserve
   exact plaintext length (identical length to original).
 - Data lines remain completely unchanged in length, byte content,
   and line terminators.
-- Overall yEnc block length increases by exactly 16 bytes (the salt).
+- Overall yEnc block length increases by exactly 16 bytes (the salt) when
+  control-line encryption is used in isolation. In Combined Mode with body
+  encryption, the inserted =yencryption header line adds an additional 113 bytes
+  of content plus line terminator (115 bytes for CRLF), making total block
+  expansion 131 bytes.
 - Line endings (CRLF or LF) and data line formatting are preserved
   throughout the process.
 
@@ -549,7 +581,8 @@ Decryption Processing:
 After decryption, the reconstructed text matches the original yEnc
 block exactly, with control lines restored and data lines unchanged.
 Overall block length increased on wire by exactly 16 bytes due to salt
-prepended to line 1.
+prepended to line 1 in isolation (or by 131 bytes in Combined Mode with the
+115-byte CRLF =yencryption header line).
 
 ----------------------------------------------------------------------
 11. Summary

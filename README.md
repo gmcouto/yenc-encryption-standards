@@ -155,7 +155,8 @@ Target: yEnc control lines (lines beginning with "=y")
 Alphabet: 253 bytes (0x01-0xFF excluding CR/LF: 0x0D and 0x0A)
 Cipher: FF1 with AES-256
 Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
-Tweak: GMAC-SHA256(master, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
+encKey: HMAC-SHA256(masterKey, "yenc-control key") (32-byte AES-256 key for FF1)
+Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
 segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from NZB attribute
 Salt: 16 random bytes sampled from 253-byte Alphabet, prepended to line 1
 Length: Line 1 expands by 16 bytes; lines 2..N preserve exact byte length
@@ -172,7 +173,7 @@ Target: Binary file data (before yEnc encoding)
 Cipher: XChaCha20 (256-bit key, 192-bit nonce)
 Authentication: Poly1305 (128-bit tag)
 Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
-Nonce: GMAC-SHA256(key, "yenc-body nonce" || uint32_be(segmentIndex))[0:24]
+Nonce: HMAC-SHA256(key, "yenc-body nonce" || uint32_be(segmentIndex))[0:24]
 segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from NZB attribute
 Salt: 16 cryptographically secure random bytes (CSPRNG)
 Format: =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>
@@ -198,7 +199,7 @@ An implementation MAY buffer one complete article because AEAD authentication mu
 
 ## Status
 
-Both specifications are published as **frozen v1.0 wire contracts (v1.0 Frozen)** dated 2026-09-27, establishing an immutable interoperability baseline across Pesto, Penne, SABnzbd, and NZBGet. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) are finalized and frozen for implementation across all client engines.
+Both specifications are published as **frozen v1.0 wire contracts (v1.0 Frozen)** dated 2026-10-01, establishing an immutable interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) are finalized and frozen for implementation across all client engines.
 
 ## Contributing
 
