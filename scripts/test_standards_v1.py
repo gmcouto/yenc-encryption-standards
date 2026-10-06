@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Automated specification validation test harness for yEnc encryption standards v1.1.
+"""Automated specification validation test harness for yEnc encryption standards v1.2.
 
 Tests conformance against:
 - BOOTSTRAP-SPEC-01: Control line 20-byte bootstrap prefix and 5-token canonical grammar
@@ -7,7 +7,7 @@ Tests conformance against:
 - SPEC-01: Control line bootstrap carriage and length preservation rules
 - SPEC-02: 1-based physical lineIndex counting and 253-byte alphabet numeral bijection
 - SPEC-03: Big-endian uint32_be integer serialization in HMAC-SHA256 derivations
-- SPEC-04: Specification freeze to v1.1, metadata headers, and synchronized documentation
+- SPEC-04: Specification version v1.2, metadata headers, and synchronized documentation
 """
 
 import re
@@ -132,35 +132,35 @@ class TestStandardsV1(unittest.TestCase):
         self.assertRegex(self.control_spec, r"big-endian|network byte order")
 
     def test_spec04_control_version(self):
-        """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for control lines: Version 1.1, experimental wire contract, updated date, and Change Log."""
+        """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for control lines: Version 1.2, experimental wire contract, updated date, and Change Log."""
         self.assertIn("SPECIFICATION: yEnc Control Lines Encryption Standard", self.control_spec)
-        self.assertIn("Version: 1.1", self.control_spec)
-        self.assertRegex(self.control_spec, r"Date:\s+2026-10-01")
-        self.assertIn("Status: Experimental Wire Contract (v1.1)", self.control_spec)
+        self.assertIn("Version: 1.2", self.control_spec)
+        self.assertRegex(self.control_spec, r"Date:\s+2026-10-05")
+        self.assertIn("Status: Experimental Wire Contract (v1.2)", self.control_spec)
         self.assertIn("Category: Standards Track", self.control_spec)
-        self.assertIn("Version 1.1 (2026-10-01):", self.control_spec)
+        self.assertIn("Version 1.2 (2026-10-05):", self.control_spec)
 
     def test_spec04_body_version(self):
-        """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for body encryption: Version 1.1, experimental wire contract, updated date, and Change Log."""
+        """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for body encryption: Version 1.2, experimental wire contract, updated date, and Change Log."""
         self.assertIn("SPECIFICATION: yEnc Body Encryption Standard", self.body_spec)
-        self.assertIn("Version: 1.1", self.body_spec)
-        self.assertRegex(self.body_spec, r"Date:\s+2026-10-01")
-        self.assertIn("Status: Experimental Wire Contract (v1.1)", self.body_spec)
+        self.assertIn("Version: 1.2", self.body_spec)
+        self.assertRegex(self.body_spec, r"Date:\s+2026-10-05")
+        self.assertIn("Status: Experimental Wire Contract (v1.2)", self.body_spec)
         self.assertIn("Category: Standards Track", self.body_spec)
-        self.assertIn("Version 1.1 (2026-10-01):", self.body_spec)
+        self.assertIn("Version 1.2 (2026-10-05):", self.body_spec)
 
     def test_spec04_version_frozen(self):
-        """Verify SPEC-04 across all specs: Version 1.1, experimental wire contract, updated date, and Change Log."""
+        """Verify SPEC-04 across all specs: Version 1.2, experimental wire contract, updated date, and Change Log."""
         for spec_text in (self.body_spec, self.control_spec):
-            self.assertIn("Version: 1.1", spec_text)
-            self.assertIn("Status: Experimental Wire Contract (v1.1)", spec_text)
-            self.assertRegex(spec_text, r"Date:\s+2026-10-01")
-            self.assertIn("Version 1.1 (2026-10-01):", spec_text)
+            self.assertIn("Version: 1.2", spec_text)
+            self.assertIn("Status: Experimental Wire Contract (v1.2)", spec_text)
+            self.assertRegex(spec_text, r"Date:\s+2026-10-05")
+            self.assertIn("Version 1.2 (2026-10-05):", spec_text)
 
     def test_spec04_readme_synchronized(self):
         """Verify SPEC-04 README synchronization: status badge and no obsolete deterministic salt text."""
         self.assertNotIn("(deterministic)", self.readme)
-        self.assertIn("v1.1 Experimental", self.readme)
+        self.assertIn("v1.2 Experimental", self.readme)
 
     def test_spec05_nzb_segment_index_extension(self):
         """Verify BOOTSTRAP-SPEC-02: Section 8 requires clean NZB 1.1 segments and removes custom segmentIndex XML attribute."""
@@ -295,7 +295,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIn("1..=4294967295", self.readme)
         self.assertNotIn("file numbering for proper segmentIndex", self.readme)
         self.assertNotIn("proper segmentIndex calculation", self.readme)
-        self.assertIn("v1.1 Experimental", self.readme)
+        self.assertIn("v1.2 Experimental", self.readme)
 
     def test_spec06_provenance_and_archive_password_schema(self):
         """Verify encrypted transport provenance is explicit and archive passwords stay decoupled."""

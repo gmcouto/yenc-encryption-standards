@@ -1,9 +1,9 @@
 SPECIFICATION: yEnc Control Lines Encryption Standard
-Version: 1.1
-Date: 2026-10-01
+Version: 1.2
+Date: 2026-10-05
 Author: Independent Specification
 
-Status: Experimental Wire Contract (v1.1)
+Status: Experimental Wire Contract (v1.2)
 Category: Standards Track
 
 Abstract:
@@ -16,6 +16,29 @@ required for Usenet transmission.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.2 (2026-10-05):
+- Clarified Section 5 step 4 header-loop probe semantics: only FF1
+  decryption SUCCESS whose plaintext does not begin with "=y" terminates
+  the header loop (first data line); an FF1 decryption error on a line in
+  the header region is PROVIDER_FAILOVER, never data-line passthrough (T7).
+- Clarified the definition of N in Section 2 and Section 5 step 1: N is
+  the 1-based line index of the =yend footer line; trailing blank lines
+  after the footer are outside the yEnc block and are excluded from
+  lineIndex accounting (T10-clarify).
+- Standardized clean-NZB consumption: readers MUST NOT consume any
+  segmentIndex XML attribute on <segment> elements (mirrors the body
+  standard v1.2, T3).
+- Added "Transport boundary" interoperability note: producers MUST
+  dot-stuff per RFC 3977 Section 3.1.1, consumers MUST dot-unstuff before
+  line splitting and index counting, and <segment bytes> and size=
+  report dot-unstuffed content length (T9).
+- Standardized forward-compatibility metadata gating for yenc_version /
+  yenc_cipher metadata: non-consuming clients MAY ignore; consuming
+  clients MUST treat unsupported values as METADATA_VALIDATION (T10).
+- CR-02 skip-in-writer behavior already present (no change): uploaders
+  skip indices whose uint32_be contains 0x0A or 0x0D (indices 10, 13,
+  266, and 269 are examples).
 
 2026-10-03 (editorial, post-cycle adversarial review remediation):
 - Added normative framing guard forbidding byte values 0x0A and 0x0D in
@@ -213,15 +236,17 @@ due to the bootstrap prefix prepended to the first line.
     bootstrap short. Uploaders MUST skip such indices, and
     decoders MUST reject the article under PROVIDER_FAILOVER.
 
-  lineIndex:
-    A 32-bit unsigned integer (1 <= lineIndex <= N) representing the
-    1-based physical line number of every line (header, data, or
-    footer) within the yEnc block after NNTP dot-unstuffing, where N
-    is the total physical line count of the block.
-    Every line in the block, whether an encrypted control line or an
-    unmodified data line, increments lineIndex sequentially by 1.
-    The first line of the block has lineIndex = 1; the final footer
-    line (=yend) has lineIndex = N.
+   lineIndex:
+     A 32-bit unsigned integer (1 <= lineIndex <= N) representing the
+     1-based physical line number of every line (header, data, or
+     footer) within the yEnc block after NNTP dot-unstuffing, where N
+     is the 1-based line index of the =yend footer line. Trailing
+     blank lines after the footer are outside the yEnc block and are
+     excluded from lineIndex accounting.
+     Every line in the block, whether an encrypted control line or an
+     unmodified data line, increments lineIndex sequentially by 1.
+     The first line of the block has lineIndex = 1; the final footer
+     line (=yend) has lineIndex = N.
     Used to generate unique tweaks for FF1 encryption/decryption of
     yEnc control lines.
 
@@ -338,8 +363,10 @@ Procedure (applied to each yEnc control line individually):
 ----------------------------------------------------------------------
 5. Decryption and Error Handling
 
-Input: yEnc block with encrypted control lines (total physical lines N),
-password from NZB metadata.
+   Input: yEnc block with encrypted control lines, password from NZB
+   metadata. N is the 1-based line index of the =yend footer line;
+   trailing blank lines after the footer are outside the yEnc block and
+   are excluded from lineIndex accounting.
 
 Decryption Steps:
 
@@ -379,7 +406,11 @@ Decryption Steps:
       - Extract line content (excluding line terminators).
       - Derive tweak using extracted salt, extracted segmentIndex, and
         current lineIndex.
-      - Apply FF1 decryption over the 253-character Alphabet.
+      - Apply FF1 decryption over the 253-character Alphabet. Only a
+        decryption SUCCESS whose plaintext does not begin with "=y"
+        terminates the header loop (this line is the first data line).
+        An FF1 decryption error on a line in the header region is
+        PROVIDER_FAILOVER, never data-line passthrough.
       - If decrypted content starts with "=y":
         * If decrypted line starts with "=yencryption":
           - Validate the canonical five-token grammar from the body standard:
@@ -564,8 +595,10 @@ Consumer Requirements:
 An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
 2. Read <meta type="password"> for the transport password.
-3. Treat <segment> elements as standard NZB 1.1 records without expecting
-   custom XML attributes. Encryption-aware readers MUST
+3. Treat <segment> elements as standard NZB 1.1 records: readers MUST NOT
+   consume any `segmentIndex` XML attribute on `<segment>` elements; if
+   present, they MUST ignore it. Writers MUST NOT emit such attributes.
+   Encryption-aware readers MUST
    accept both canonical NZB namespaces,
    http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
    or match <segment> and other elements irrespective of default XML namespace prefixing.
@@ -574,6 +607,14 @@ An encryption-aware NZB reader MUST:
    or 0x0D under PROVIDER_FAILOVER.
 5. Use the extracted segmentIndex for control-line tweak derivation and
    body nonce derivation.
+
+Forward-Compatibility Metadata Gating:
+NZBs produced by newer tooling MAY carry <meta type="yenc_version"> and
+<meta type="yenc_cipher"> entries. Clients that do not consume yEnc
+transport encryption MAY ignore these entries. Clients that DO consume
+them MUST treat unsupported yenc_version or yenc_cipher values as a
+METADATA_VALIDATION structural failure (fail closed); silent fallback to
+ordinary yEnc decoding risks writing ciphertext as content.
 
 Decoupling of Presentation Metadata:
 - <file subject> has no cryptographic meaning.
@@ -594,6 +635,10 @@ Decoupling of Presentation Metadata:
   lines after NNTP dot-unstuffing has been applied.
 - Line Terminators: Canonical yEnc generators emit CRLF (0x0D 0x0A).
   Decoders MUST accept both CRLF and bare LF (0x0A) transparently.
+- Transport boundary: Producers MUST dot-stuff article content per
+  RFC 3977 Section 3.1.1; consumers MUST dot-unstuff before line splitting
+  and index counting. The <segment bytes> and size= parameters report
+  dot-unstuffed content length, not wire length.
 - Article-Bounded Memory: An implementation MAY buffer one complete article
   while restoring control lines and authenticating an encrypted body. It MUST
   keep working memory proportional to the configured maximum article size,

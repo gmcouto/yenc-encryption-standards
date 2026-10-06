@@ -1,9 +1,9 @@
 SPECIFICATION: yEnc Body Encryption Standard
-Version: 1.1
-Date: 2026-10-01
+Version: 1.2
+Date: 2026-10-05
 Author: Independent Specification
 
-Status: Experimental Wire Contract (v1.1)
+Status: Experimental Wire Contract (v1.2)
 Category: Standards Track
 
 Abstract:
@@ -15,6 +15,29 @@ of the transmitted data.
 
 ----------------------------------------------------------------------
 Change Log:
+
+Version 1.2 (2026-10-05):
+- Standardized forward-compatibility metadata gating: clients that do not
+  consume yEnc transport encryption MAY ignore the yenc_version and
+  yenc_cipher metadata entries; clients that DO consume them MUST treat
+  unsupported values as a METADATA_VALIDATION structural failure (fail
+  closed) rather than falling back to ordinary yEnc (T10).
+- Added interoperability rule: readers MUST NOT consume any segmentIndex
+  XML attribute on <segment> elements; if present they MUST ignore it,
+  and writers MUST NOT emit such attributes (T3, closes the text-vs-
+  legacy_attribute_ignored-vectors contradiction).
+- Replaced the CRC clearing wording with a positive obligation: after
+  successful Poly1305 verification decoders MUST NOT persist the
+  ciphertext wire CRC into any verification path (PAR2, quick-check,
+  whole-file CRC folding); they MUST either clear the CRC metadata
+  (crc32 = None) or recompute it over authenticated plaintext (T4).
+- Added combined-only interoperability sentence: receivers supporting
+  only combined mode MAY reject a body-only article as METADATA_VALIDATION;
+  body-only remains defined for future versions (T2).
+- Added "Transport boundary" interoperability bullet: producers MUST
+  dot-stuff per RFC 3977 Section 3.1.1, consumers MUST dot-unstuff before
+  line splitting and index counting, and <segment bytes> and size=
+  report dot-unstuffed content length, not wire length (T9).
 
 2026-10-03 (editorial, post-cycle adversarial review remediation):
 - Remediated Section 10 worked example to use canonical authentication tag
@@ -346,8 +369,14 @@ Decryption Processing:
 7. Authenticate and decrypt ciphertext using XChaCha20-Poly1305. If
    authentication fails, no CRC result observed in step 5 changes the
    outcome: the article fails as provider corruption.
-8. On authentication success, discard or clear wire CRC metadata
-   (crc32 = None) and forward decrypted plaintext to assembly/PAR2.
+8. On authentication success, apply the CRC positive obligation below and
+   forward decrypted plaintext to assembly/PAR2.
+
+Downstream CRC Normalization (positive obligation): After successful
+Poly1305 verification, decoders MUST NOT persist the ciphertext wire CRC
+into any verification path (PAR2, quick-check, whole-file CRC folding).
+They MUST either clear the CRC metadata (crc32 = None) or recompute it
+over authenticated plaintext.
 
 Two-Tier Error Classification:
 
@@ -359,6 +388,10 @@ missing, or misplaced control line in the fetched article is therefore
 provider corruption, including malformed =yencryption syntax, an unsupported
 cipher token, a duplicate =yencryption line, and a dual-salt or dual-index mismatch.
 This rule prevents the same article defect from being classified in both tiers.
+
+Combined-only interoperability: Receivers that support only combined mode
+MAY reject a body-only article (mode unsupported) as METADATA_VALIDATION;
+body-only remains defined for future versions.
 
 1. Non-Retriable Structural Failures:
    - Missing NZB provenance when transport decryption was requested.
@@ -465,12 +498,22 @@ Consumer Requirements:
 An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
 2. Read <meta type="password"> for the transport password.
-3. Treat <segment> elements as standard NZB 1.1 records without expecting
-   custom XML attributes; encryption-aware readers MUST accept both canonical NZB namespaces,
+3. Treat <segment> elements as standard NZB 1.1 records: readers
+   MUST NOT consume any `segmentIndex` XML attribute on `<segment>` elements; if
+   present, they MUST ignore it. Writers MUST NOT emit such attributes.
+   Encryption-aware readers MUST accept both canonical NZB namespaces,
    http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
    or match <segment> and other elements irrespective of default XML namespace prefixing.
 4. Extract segmentIndex and salt directly from fetched article bootstrap bytes: body-only mode reads the =yencryption header while combined mode verifies the Line 1 prefix.
 5. Use the extracted segmentIndex for body nonce derivation.
+
+Forward-Compatibility Metadata Gating:
+NZBs produced by newer tooling MAY carry <meta type="yenc_version"> and
+<meta type="yenc_cipher"> entries. Clients that do not consume yEnc
+transport encryption MAY ignore these entries. Clients that DO consume
+them MUST treat unsupported yenc_version or yenc_cipher values as a
+METADATA_VALIDATION structural failure (fail closed); silent fallback to
+ordinary yEnc decoding risks writing ciphertext as content.
 
 Decoupling of Presentation Metadata:
 - <file subject> has no cryptographic meaning.
@@ -494,9 +537,16 @@ Decoupling of Presentation Metadata:
   These sizes are implementation guidance, not wire-format limits. A receiver
   MAY reject an article above its configured limit before allocation or
   decryption.
+- Transport boundary: Producers MUST dot-stuff article content per
+  RFC 3977 Section 3.1.1; consumers MUST dot-unstuff before line splitting
+  and index counting. The <segment bytes> and size= parameters report
+  dot-unstuffed content length, not wire length.
 - Downstream CRC Normalization: After successful Poly1305 verification,
-  decoders MUST clear or ignore wire CRC metadata (setting crc32 = None)
-  so subsequent assembly and PAR2 tools compute fresh CRCs over plaintext.
+  decoders MUST NOT persist the ciphertext wire CRC into any verification
+  path (PAR2, quick-check, whole-file CRC folding). They MUST either clear
+  the CRC metadata (crc32 = None) or recompute it over authenticated
+  plaintext so subsequent assembly and PAR2 tools compute fresh CRCs over
+  plaintext.
 
 ----------------------------------------------------------------------
 10. Example

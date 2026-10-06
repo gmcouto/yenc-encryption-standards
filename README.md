@@ -1,7 +1,7 @@
 # yEnc Encryption Standards
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: Experimental Wire Contract (v1.1)](https://img.shields.io/badge/Status-v1.1%20Experimental-blue.svg)]()
+[![Status: Experimental Wire Contract (v1.2)](https://img.shields.io/badge/Status-v1.2%20Experimental-blue.svg)]()
 
 This repository contains specifications for two encryption standards for yEnc-encoded binary blocks used in Usenet transfers. Both can be used individually or combined, depending on security and obfuscation requirements.
 
@@ -102,7 +102,7 @@ The downloader reads the NZB metadata before requesting an article. A compliant 
 
 For a single-part block, `=yencryption` is physical line 2, immediately after `=ybegin`. For a multipart block, `=ypart` remains line 2 and `=yencryption` is line 3. The canonical wire line is `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>`. Each placeholder is replaced by lowercase hexadecimal characters: salt is 32 hex chars, index is 8 hex chars (uint32_be in range 00000001..ffffffff), and tag is 32 hex chars, producing exactly 128 characters excluding CRLF. The line uses one ASCII space between its five tokens and has no leading or trailing whitespace. Parsers reject any other field order, spacing, field count, cipher name, character set, or value length.
 
-When both standards are used, the raw salt and uint32_be segmentIndex prepended to Line 1 and the hexadecimal salt and index in `=yencryption` MUST represent the same values. Wire CRC values cover ciphertext and are checked before AEAD decryption. After authentication succeeds, decoders clear those CRC values before handing plaintext to assembly or PAR2.
+When both standards are used, the raw salt and uint32_be segmentIndex prepended to Line 1 and the hexadecimal salt and index in `=yencryption` MUST represent the same values. Wire CRC values cover ciphertext and are checked before AEAD decryption. After authentication succeeds, decoders MUST NOT persist the ciphertext wire CRC into any verification path (PAR2, quick-check, whole-file CRC folding); they either clear the CRC metadata or recompute it over authenticated plaintext. Producers MUST dot-stuff per RFC 3977 Section 3.1.1 and consumers MUST dot-unstuff before line splitting and index counting; segment byte counts report dot-unstuffed content length. Readers MUST NOT consume any segmentIndex XML attribute on <segment> elements (ignored if present) and writers MUST NOT emit such attributes.
 
 Failures in NZB metadata or local configuration before article retrieval are structural. Missing provenance, malformed XML, a missing password, or a locally unsupported encryption mode is fatal and MUST NOT trigger provider failover. Failures in fetched article bytes after those checks pass are provider corruption. This includes malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; dual-salt or dual-index mismatch; CRC mismatch; truncation; and AEAD authentication failure. Clients retry provider corruption on eligible alternate providers. Both tiers release zero plaintext and zero ciphertext as final output.
 
@@ -157,7 +157,7 @@ Because AEAD authentication must finish before plaintext release, an implementat
 
 ## Status
 
-Both specifications are published as experimental v1.1 wire contracts (v1.1 Experimental) dated 2026-10-01. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF in body-only mode, while the control standard's salt is sampled uniformly from its 253-byte Alphabet; in combined mode the shared salt is constrained to the 253-byte Alphabet intersection. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
+Both specifications are published as experimental v1.2 wire contracts (v1.2 Experimental) dated 2026-10-05. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF in body-only mode, while the control standard's salt is sampled uniformly from its 253-byte Alphabet; in combined mode the shared salt is constrained to the 253-byte Alphabet intersection. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
 
 ## Contributing
 
