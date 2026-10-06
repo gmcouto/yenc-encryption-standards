@@ -88,6 +88,13 @@ def extract_bootstrap_from_line1(line1_bytes: bytes) -> tuple[bytes, int, bytes]
     seg_idx = struct.unpack(">I", line1_bytes[16:20])[0]
     if seg_idx == 0:
         raise ValueError("ZERO_SEGMENT_INDEX")
+    # CR-02 (Control Std v1.2 Section 2/4/5/8): a uint32_be(segmentIndex)
+    # containing 0x0A or 0x0D injects an NNTP line delimiter into the Line 1
+    # prefix and splits the bootstrap short. Decoders MUST reject under
+    # PROVIDER_FAILOVER.
+    for b in line1_bytes[16:20]:
+        if b in (0x0A, 0x0D):
+            raise ValueError("FORBIDDEN_SEGMENT_INDEX_BYTE")
     ciphertext = line1_bytes[20:]
     return salt, seg_idx, ciphertext
 
@@ -218,9 +225,22 @@ def ff1_decrypt(key: bytes, tweak: bytes, ciphertext_bytes: bytes, radix: int = 
     return bytes(numeral_to_byte(i) for i in pt_numerals)
 
 
+def check_header_placement(line_index: int, multipart: bool) -> None:
+    """Placement rule (Body Std v1.2 Section 4): =yencryption is physical
+    line 2 for single-part articles and physical line 3 for multipart
+    articles (immediately after =ypart at line 2)."""
+    expected = 3 if multipart else 2
+    if line_index != expected:
+        raise ValueError("MISPLACED_ENCRYPTION_HEADER")
+
+
 def parse_yencryption_line_v11(line: str) -> dict:
     """Parse and validate the canonical five-token v1.1 =yencryption header."""
     if line != line.strip():
+        raise ValueError("INVALID_WHITESPACE")
+    # Whitespace strictness (v1.2): a tab anywhere or two consecutive spaces
+    # anywhere survives strip() but violates the single-SP token grammar.
+    if "\t" in line or "  " in line:
         raise ValueError("INVALID_WHITESPACE")
     tokens = line.split(" ")
     if len(tokens) != 5 or any(not token for token in tokens):
@@ -252,6 +272,10 @@ def parse_yencryption_line_v11(line: str) -> dict:
     segment_index = int(index_hex, 16)
     if segment_index == 0:
         raise ValueError("ZERO_SEGMENT_INDEX")
+    # CR-02: same forbidden-byte rule as the Line 1 bootstrap (v1.2).
+    for b in uint32_be(segment_index):
+        if b in (0x0A, 0x0D):
+            raise ValueError("FORBIDDEN_SEGMENT_INDEX_BYTE")
 
     return {
         "cipher": "XChaCha20-Poly1305",
@@ -287,11 +311,12 @@ class TestConformanceVectors(unittest.TestCase):
         cls.control_data = load_fixture("control_line_encryption.json")
         cls.malformed_data = load_fixture("malformed_inputs.json")
         cls.nzb_identity_data = load_fixture("nzb_segment_identity.json")
+        cls.index_allocation_data = load_fixture("index_allocation.json")
 
     def test_manifest_checksums(self):
         """Verify SHA-256 integrity hashes and vector counts for all fixtures."""
         self.assertEqual(self.manifest["schema_version"], "1.0")
-        self.assertEqual(self.manifest["standard_version"], "1.1")
+        self.assertEqual(self.manifest["standard_version"], "1.2")
         expected_files = {
             "argon2id.json",
             "nonce_tweak.json",
@@ -299,6 +324,7 @@ class TestConformanceVectors(unittest.TestCase):
             "control_line_encryption.json",
             "malformed_inputs.json",
             "nzb_segment_identity.json",
+            "index_allocation.json",
         }
         self.assertEqual(set(self.manifest["files"]), expected_files)
         for filename, meta in self.manifest["files"].items():
@@ -443,13 +469,49 @@ class TestConformanceVectors(unittest.TestCase):
 
     def test_vec05_malformed_inputs(self):
         """Verify VEC-05 malformed bootstrap and authentication failures enforce zero output."""
+        metadata_tokens = {
+            "MISSING_ENCRYPTION_PROVENANCE",
+            "INVALID_ENCRYPTION_PROVENANCE",
+            "MISSING_PASSWORD",
+            "METADATA_VALIDATION_BODY_ONLY",
+        }
+        dispatchable_categories = {
+            "header_syntax",
+            "auth_failure",
+            "control_syntax",
+            "salt_mismatch",
+            "placement",
+            "metadata_validation",
+        }
+        exercised: set[str] = set()
         for case in self.malformed_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
+                exercised.add(case["id"])
                 self.assertTrue(case["zero_output_required"])
-                if case["category"] == "header_syntax":
-                    with self.assertRaises(ValueError):
-                        parse_yencryption_line_v11(case["input_line"])
-                elif case["category"] == "auth_failure":
+                category = case["category"]
+                if category == "header_syntax":
+                    # Whitespace-strictness vectors (tab, double space) raise
+                    # INVALID_WHITESPACE per v1.2 strict single-SP parsing; all
+                    # other header_syntax vectors dispatch on their own
+                    # expected_error token.
+                    self.assertRaisesRegex(
+                        ValueError, re.escape(case["expected_error"]), parse_yencryption_line_v11, case["input_line"]
+                    )
+                elif category == "placement":
+                    self.assertRaisesRegex(
+                        ValueError,
+                        re.escape(case["expected_error"]),
+                        check_header_placement,
+                        case["line_index"],
+                        case["multipart"],
+                    )
+                elif category == "metadata_validation":
+                    # Metadata-level vectors: schema assertion only (no crypto
+                    # primitive applies; the article bytes are not carried).
+                    self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
+                    self.assertFalse(case["provider_failover_permitted"])
+                    self.assertIn(case["expected_error"], metadata_tokens)
+                elif category == "auth_failure":
                     key = derive_key(case["password"], bytes.fromhex(case["salt_hex"]))
                     nonce = derive_body_nonce(key, case["segment_index"])
                     ciphertext = bytes.fromhex(case.get("tampered_ciphertext_hex") or case["ciphertext_hex"])
@@ -460,21 +522,53 @@ class TestConformanceVectors(unittest.TestCase):
                             output = body_decrypt(ciphertext, tag, key, nonce)
                         finally:
                             self.assertIsNone(output)
-                elif case["category"] == "control_syntax":
+                elif category == "control_syntax":
                     if "tampered_salt_hex" in case:
                         with self.assertRaisesRegex(ValueError, "INVALID_SALT_CHARACTER"):
                             extract_bootstrap_from_line1(bytes.fromhex(case["tampered_salt_hex"]) + struct.pack(">I", 1) + b"==")
                     elif "line1_hex" in case:
-                        error = "ZERO_SEGMENT_INDEX" if case["expected_error"] == "ZERO_SEGMENT_INDEX" else "LINE_TRUNCATED"
-                        with self.assertRaisesRegex(ValueError, error):
+                        # Dispatch on the vector's own expected_error token so
+                        # CR-02 (FORBIDDEN_SEGMENT_INDEX_BYTE), zero-index, and
+                        # truncation vectors each assert their own class.
+                        with self.assertRaisesRegex(ValueError, re.escape(case["expected_error"])):
                             extract_bootstrap_from_line1(bytes.fromhex(case["line1_hex"]))
-                elif case["category"] == "salt_mismatch":
+                    elif "line_hex" in case:
+                        # LINE_TOO_SHORT: a control line shorter than the
+                        # 2-byte FF1 minimum cannot be decrypted (Control Std
+                        # v1.2 Section 5 provider tier). The fixture encodes a
+                        # sub-minimum line; assert it violates the minimum.
+                        raw = bytes.fromhex(case["line_hex"])
+                        self.assertEqual(case["expected_error"], "LINE_TOO_SHORT")
+                        self.assertLess(len(raw), 2)
+                    elif "wrong_password" in case:
+                        # CONTROL_LINE_DECRYPT_FAILURE: deriving keys from a
+                        # wrong password and decrypting the canonical Line 1
+                        # bootstrap yields bytes that do not begin with
+                        # "=ybegin" (Control Std Section 5 step 3g).
+                        ref = next(
+                            c
+                            for c in self.control_data["vectors"]
+                            if c.get("is_line_1") and "expected_wire_hex" in c
+                        )
+                        wire = bytes.fromhex(ref["expected_wire_hex"])
+                        wrong_key = derive_key(case["wrong_password"], bytes.fromhex(ref["salt_hex"]))
+                        enc_key, tweak = derive_control_keys(wrong_key, ref["segment_index"], ref["line_index"])
+                        restored = ff1_decrypt(enc_key, tweak, wire[20:])
+                        self.assertNotEqual(restored, ref["plaintext_line"].encode("ascii"))
+                        self.assertFalse(restored.startswith(b"=ybegin"))
+                elif category == "salt_mismatch":
                     params = {
                         "salt": bytes.fromhex(case["header_salt_hex"]),
                         "segment_index": case["header_index"],
                     }
                     with self.assertRaises(ValueError):
                         validate_dual_bootstrap(bytes.fromhex(case["line1_salt_hex"]), case["line1_index"], params)
+                else:
+                    self.fail(f"Unknown malformed_inputs category: {category}")
+                self.assertIn(category, dispatchable_categories)
+        # Zero silent skips: every vector id must have been exercised above.
+        all_ids = {case["id"] for case in self.malformed_data["vectors"]}
+        self.assertEqual(exercised, all_ids)
 
     @staticmethod
     def _segments(root):
@@ -492,6 +586,27 @@ class TestConformanceVectors(unittest.TestCase):
                     metadata = {meta.get("type"): (meta.text or "") for meta in root.findall("./{http://www.newzbin.com/DTD/2003/nzb}head/{http://www.newzbin.com/DTD/2003/nzb}meta")}
                     self.assertEqual(metadata.get("yenc_encrypted"), "true")
                     self.assertIn("password", metadata)
+
+    def test_vec07_index_allocation(self):
+        """Verify CR-02 uploader skip vectors: forbidden candidates are skipped,
+        assigned indices never contain 0x0A/0x0D, and 269 itself is forbidden."""
+        self.assertEqual(self.index_allocation_data["requirement"], "VEC-07")
+        for case in self.index_allocation_data["vectors"]:
+            with self.subTest(vector_id=case["id"]):
+                self.assertEqual(case["category"], "index_allocation")
+                self.assertIsNone(case["expected_error"])
+                candidate = uint32_be(case["candidate_index"])
+                assigned = uint32_be(case["expected_assigned_index"])
+                # The candidate must contain a forbidden delimiter byte.
+                self.assertTrue(any(b in (0x0A, 0x0D) for b in candidate), case["id"])
+                # The assigned index must contain neither forbidden byte.
+                self.assertFalse(any(b in (0x0A, 0x0D) for b in assigned), case["id"])
+                # Skip always moves forward.
+                self.assertGreater(case["expected_assigned_index"], case["candidate_index"])
+                self.assertEqual(case["expected_index_hex"], format(case["expected_assigned_index"], "08x"))
+                # 269 (0x0000010D) itself is forbidden and must never be assigned.
+                if case["candidate_index"] == 269:
+                    self.assertNotEqual(case["expected_assigned_index"], 269)
 
     def test_dual_bootstrap_agreement(self):
         """Verify salt and index must both agree between Line 1 and =yencryption."""
