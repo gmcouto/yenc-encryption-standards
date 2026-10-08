@@ -354,6 +354,9 @@ Decryption Processing:
 2. Validate that the line conforms strictly to the five tokens grammar
    with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, valid
    lowercase 8-hex index (non-zero), and valid lowercase 32-hex tag.
+   The 4-byte big-endian uint32_be representation of segmentIndex MUST NOT
+   contain forbidden delimiter bytes 0x0A or 0x0D (CR-02 rule); if either byte
+   is present, treat the violation as retriable PROVIDER_FAILOVER provider corruption.
    The line content must be exactly 128 bytes (ASCII characters) excluding
    line terminators (CRLF or bare LF); a shorter or longer line fails the
    grammar check as a truncation or extension defect and MUST be treated
@@ -410,6 +413,8 @@ body-only remains defined for future versions.
      fetched article, including =ybegin, =ypart, =yencryption, and =yend.
    - An =yencryption line that violates the canonical grammar or contains an
      unsupported cipher token other than XChaCha20-Poly1305.
+   - An index containing forbidden delimiter bytes (0x0A or 0x0D) in the
+     4-byte uint32_be(segmentIndex) representation (CR-02).
    - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
    - Wire CRC mismatch over decoded ciphertext.
    - Poly1305 authentication tag verification failure.
@@ -495,7 +500,7 @@ For an encrypted upload, the NZB writer MUST:
 3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only.
 4. Embed the 1-based segmentIndex into the article bootstrap: the =yencryption index parameter always, and the Line 1 prefix bytes 16..19 only when combined with control line encryption.
 5. Ensure each encrypted article has a unique segmentIndex within the upload session.
-6. Assign indices continuously starting from 1 for fresh uploads.
+6. Assign indices continuously starting from 1 for fresh uploads, skipping every index whose four-byte big-endian uint32_be(segmentIndex) contains 0x0A or 0x0D (CR-02 rule).
 7. Preserve an article's assigned index across retries, reposts, and resume.
 
 Consumer Requirements:
@@ -508,7 +513,7 @@ An encryption-aware NZB reader MUST:
    Encryption-aware readers MUST accept both canonical NZB namespaces,
    http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
    or match <segment> and other elements irrespective of default XML namespace prefixing.
-4. Extract segmentIndex and salt directly from fetched article bootstrap bytes: body-only mode reads the =yencryption header while combined mode verifies the Line 1 prefix.
+4. Extract segmentIndex and salt directly from fetched article bootstrap bytes: body-only mode reads the =yencryption header while combined mode verifies the Line 1 prefix, rejecting any article whose four-byte big-endian uint32_be(segmentIndex) representation contains forbidden bytes 0x0A or 0x0D under PROVIDER_FAILOVER.
 5. Use the extracted segmentIndex for body nonce derivation.
 
 Forward-Compatibility Metadata Gating:
@@ -607,8 +612,9 @@ metadata and detect <meta type="yenc_encrypted">true</meta>, locate the
 =yencryption header at line 2 (or line 3 if =ypart is line 2), verify the
 exact five tokens with lowercase hexadecimal salt, 8-hex index, and tag,
 decode data lines and verify wire CRC, derive key and nonce using the
-extracted index (segmentIndex=1), execute XChaCha20-Poly1305, then clear
-wire CRC metadata (crc32 = None) and release the original 16-byte binary
+extracted index (segmentIndex=1), execute XChaCha20-Poly1305, then apply
+downstream CRC normalization (clear wire CRC metadata (crc32 = None) or
+recompute it over authenticated plaintext) and release the original 16-byte binary
 plaintext.
 
 ----------------------------------------------------------------------

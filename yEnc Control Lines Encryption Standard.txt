@@ -447,7 +447,8 @@ Decryption Steps:
    e. Replace line N encrypted content with decrypted content.
 7. If body encryption is active, proceed to body decryption, wire CRC
    validation over ciphertext, Poly1305 authentication, and downstream
-   CRC metadata clearing (crc32 = None).
+   CRC normalization: decoders MUST either clear the CRC metadata
+   (crc32 = None) or recompute it over authenticated plaintext.
 8. Reconstruct the complete yEnc block with original line endings.
 
 Two-Tier Error Handling:

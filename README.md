@@ -17,7 +17,7 @@ Encrypted control lines keep the exact length (lines 2..N) and character compati
 
 This standard protects content with authentication. It targets binary file data before yEnc encoding and uses XChaCha20-Poly1305 Authenticated Encryption.
 
-It encrypts the actual file data and detects tampering through cryptographic authentication; failed authentication results in complete decryption failure with zero partial data output. Standard yEnc parsers process encrypted blocks normally. The canonical format is a strict five-token control line `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>` in lowercase hex (128 characters). Placement is physical line 2 for single-part articles (immediately after `=ybegin`) and physical line 3 for multipart articles (immediately after `=ypart`). The wire CRC covers ciphertext and is cleared after AEAD verification so downstream consumers verify plaintext CRC. This standard can be omitted if cryptographic protection of file content is not required.
+It encrypts the actual file data and detects tampering through cryptographic authentication; failed authentication results in complete decryption failure with zero partial data output. Standard yEnc parsers process encrypted blocks normally. The canonical format is a strict five-token control line `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>` in lowercase hex (128 characters). Placement is physical line 2 for single-part articles (immediately after `=ybegin`) and physical line 3 for multipart articles (immediately after `=ypart`). The wire CRC covers ciphertext and is verified before AEAD decryption; after authentication succeeds, decoders MUST either clear the CRC metadata (crc32 = None) or recompute it over authenticated plaintext so downstream consumers verify plaintext CRC. This standard can be omitted if cryptographic protection of file content is not required.
 
 ## Usage Scenarios
 
@@ -140,7 +140,7 @@ segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from arti
 Salt: 16 cryptographically secure random bytes (CSPRNG)
 Format: =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
 Placement: Single-part line 2 (after =ybegin); multipart line 3 (after =ypart)
-CRC Handling: Wire CRC in =yend covers ciphertext; verified then cleared (crc32=None)
+CRC Handling: Wire CRC in =yend covers ciphertext; verified then cleared (crc32 = None) or recomputed over authenticated plaintext
 ```
 
 ### Error Handling and Security Invariants
