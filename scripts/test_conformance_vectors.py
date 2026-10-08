@@ -365,7 +365,7 @@ class TestConformanceVectors(unittest.TestCase):
             "INVALID_TOKEN_COUNT",
             "LINE_TRUNCATED",
             "INVALID_SALT_CHARACTER",
-            "SALT_MISMATCH",
+            "DUAL_SALT_MISMATCH",
             "DUAL_INDEX_MISMATCH",
         }
         observed = {case["expected_error"] for case in self.malformed_data["vectors"]}
@@ -561,7 +561,7 @@ class TestConformanceVectors(unittest.TestCase):
                         "salt": bytes.fromhex(case["header_salt_hex"]),
                         "segment_index": case["header_index"],
                     }
-                    with self.assertRaises(ValueError):
+                    with self.assertRaisesRegex(ValueError, re.escape(case["expected_error"])):
                         validate_dual_bootstrap(bytes.fromhex(case["line1_salt_hex"]), case["line1_index"], params)
                 else:
                     self.fail(f"Unknown malformed_inputs category: {category}")
