@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Automated conformance test harness for yEnc encryption standards v1.1.
+"""Automated conformance test harness for yEnc encryption standards v1.2.
 
 Tests conformance against:
 - VEC-01: Argon2id key derivation fixtures (argon2id.json)
@@ -123,7 +123,7 @@ def body_decrypt(ciphertext: bytes, tag: bytes, key: bytes, nonce: bytes) -> byt
 
 
 def byte_to_numeral(b: int) -> int:
-    """Map byte octet to numeral 0..252 per yEnc Control Lines Standard v1.1."""
+    """Map byte octet to numeral 0..252 per yEnc Control Lines Standard v1.2."""
     if 0x01 <= b <= 0x09:
         return b - 1
     elif b == 0x0B:
@@ -136,7 +136,7 @@ def byte_to_numeral(b: int) -> int:
 
 
 def numeral_to_byte(i: int) -> int:
-    """Map numeral 0..252 back to byte octet per yEnc Control Lines Standard v1.1."""
+    """Map numeral 0..252 back to byte octet per yEnc Control Lines Standard v1.2."""
     if 0 <= i <= 8:
         return i + 1
     elif i == 9:
@@ -235,7 +235,7 @@ def check_header_placement(line_index: int, multipart: bool) -> None:
 
 
 def parse_yencryption_line_v11(line: str) -> dict:
-    """Parse and validate the canonical five-token v1.1 =yencryption header."""
+    """Parse and validate the canonical five-token v1.2 =yencryption header."""
     if line != line.strip():
         raise ValueError("INVALID_WHITESPACE")
     # Whitespace strictness (v1.2): a tab anywhere or two consecutive spaces
@@ -287,7 +287,7 @@ def parse_yencryption_line_v11(line: str) -> dict:
 
 
 class TestConformanceVectors(unittest.TestCase):
-    """Automated test suite verifying cryptographic test vectors against v1.1 specifications."""
+    """Automated test suite verifying cryptographic test vectors against v1.2 specifications."""
 
     @classmethod
     def setUpClass(cls):

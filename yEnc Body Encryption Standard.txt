@@ -267,7 +267,11 @@ Parameters:
     uint32_be(segmentIndex))[0:24]
     where segmentIndex is the unsigned 32-bit integer in range 1..=4294967295
     encoded as a 4-byte unsigned integer in big-endian order (uint32_be,
-    network byte order).
+    network byte order). The 4-byte uint32_be(segmentIndex) MUST NOT
+    contain byte values 0x0A or 0x0D; uploaders MUST skip any index
+    containing 0x0A or 0x0D in its 4 big-endian bytes (e.g., indices 10,
+    13, 266, and 269), and decoders MUST reject such an index under
+    PROVIDER_FAILOVER.
 
 Procedure:
 
