@@ -383,8 +383,8 @@ Decryption Steps:
        2-byte FF1 ciphertext). If shorter, reject as LINE_TRUNCATED.
     c. Extract the 16-byte raw salt and the 4-byte big-endian segmentIndex
        from the 20-byte bootstrap prefix (the layout defined in Sections 2
-       and 4), asserting no forbidden bytes (0x00, 0x0A, 0x0D) and a
-       valid segmentIndex in range 1..=4294967295. Assert that the 4-byte
+       and 4), asserting no forbidden bytes (0x00, 0x0A, 0x0D) in the 16-byte salt
+       and a valid segmentIndex in range 1..=4294967295. Assert that the 4-byte
        uint32_be(segmentIndex) contains no forbidden delimiter bytes (0x0A or 0x0D)
        and reject a forbidden value under PROVIDER_FAILOVER (reject zero as
        ZERO_SEGMENT_INDEX; reject a forbidden salt byte as

@@ -119,7 +119,7 @@ Target: yEnc control lines (lines beginning with "=y")
 Alphabet: 253 bytes (0x01-0xFF excluding CR/LF: 0x0D and 0x0A)
 Cipher: FF1 with AES-256
 Key Derivation: Argon2id(password, salt, time=1, memory=64MB, threads=4, 256-bit output)
-Tweak: HMAC-SHA256(master, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
+Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
 segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from article bootstrap
 Salt: 16 random bytes sampled from 253-byte Alphabet, prepended to line 1 as part of 20-byte bootstrap prefix
 Length: Line 1 expands by 20 bytes; lines 2..N preserve exact byte length
@@ -166,7 +166,7 @@ For questions, implementation discussion, or conceptual feedback, use [Discussio
 
 ## Related Work
 
-- [NIST SP 800-38G](https://csrc.nist.gov/publications/detail/sp-800-38g/final): FF1; and FF3 Format-Preserving Encryption specification
+- [NIST SP 800-38G](https://csrc.nist.gov/publications/detail/sp-800-38g/final): FF1 and FF3 Format-Preserving Encryption specification
 - [RFC 8439](https://tools.ietf.org/html/rfc8439): ChaCha20 and Poly1305 for AEAD (XChaCha20-Poly1305 extension)
 - [yEnc specification](http://www.yenc.org/yenc-draft.1.3.txt): Original yEnc encoding format
 - [Argon2](https://tools.ietf.org/html/rfc9106): Password-based key derivation function (RFC 9106)
