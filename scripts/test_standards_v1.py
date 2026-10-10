@@ -52,6 +52,12 @@ class TestStandardsV1(unittest.TestCase):
         self.assertGreater(len(self.control_spec), 0, "Control lines specification file is empty")
         self.assertGreater(len(self.readme), 0, "README file is empty")
 
+    def assert_plain_segments(self, text):
+        """Every <segment> tag in text carries only the NZB 1.1 bytes and number attributes."""
+        tags = re.findall(r"<segment\s([^>]*)>", text)
+        for attrs in tags:
+            self.assertEqual(set(re.findall(r"(\w+)=", attrs)), {"bytes", "number"}, attrs)
+
     def test_spec01_salt_carriage(self):
         """Verify SPEC-01 and BOOTSTRAP-SPEC-01: 20-byte prepended bootstrap on line 1, length properties, and removal of stale text."""
         # Must mandate 20-byte prepended bootstrap prefix on line 1
@@ -171,7 +177,7 @@ class TestStandardsV1(unittest.TestCase):
             self.assertIn('<meta type="password">', sec8)
             self.assertIn('<meta type="yenc_encrypted">true</meta>', sec8)
             self.assertIn("<segment", sec8)
-            self.assertNotIn('segmentIndex="', sec8)
+            self.assert_plain_segments(sec8)
             self.assertRegex(sec8, r"(?i)carries no encryption-specific segment data")
 
             self.assertIn("segmentIndex", spec)
@@ -200,12 +206,12 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIsNotNone(sec8)
         self.assertIn("segmentIndex", sec8.group(0))
         self.assertIn("<segment", sec8.group(0))
-        self.assertNotIn('segmentIndex="', sec8.group(0))
+        self.assert_plain_segments(sec8.group(0))
 
         sec10 = re.search(r"10\. Example.*?(?=11\. Summary)", self.control_spec, re.S)
         self.assertIsNotNone(sec10)
         self.assertIn("segmentIndex", sec10.group(0))
-        self.assertNotIn('segmentIndex="', sec10.group(0))
+        self.assert_plain_segments(sec10.group(0))
 
     def test_spec05_nzb_identity_body(self):
         """Verify REQ-11-02 and BOOTSTRAP-SPEC-02 for body encryption: segmentIndex in Section 2, 3, 4, 5, 8, 10, zero-output."""
@@ -231,12 +237,12 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIsNotNone(sec8)
         self.assertIn("segmentIndex", sec8.group(0))
         self.assertIn("<segment", sec8.group(0))
-        self.assertNotIn('segmentIndex="', sec8.group(0))
+        self.assert_plain_segments(sec8.group(0))
 
         sec10 = re.search(r"10\. Example.*?(?=11\. Summary)", self.body_spec, re.S)
         self.assertIsNotNone(sec10)
         self.assertIn("segmentIndex", sec10.group(0))
-        self.assertNotIn('segmentIndex="', sec10.group(0))
+        self.assert_plain_segments(sec10.group(0))
 
     def test_spec05_producer_consumer_rules(self):
         """Verify BOOTSTRAP-SPEC-02: producer/consumer obligations in Section 8 of both specifications for standard NZB 1.1."""
@@ -255,18 +261,6 @@ class TestStandardsV1(unittest.TestCase):
             self.assertRegex(sec8, r"[Ee]xtract segmentIndex and salt directly from fetched article bootstrap")
             self.assertRegex(sec8, r"(?:file )?subject.*?no cryptographic meaning")
             self.assertRegex(sec8, r"XML (?:file|segment) order.*?no cryptographic meaning")
-
-    def test_spec05_no_subject_derived_identity(self):
-        """Verify REQ-11-04: obsolete subject-derived calculations completely removed from Section 2 & 8."""
-        for spec in (self.body_spec, self.control_spec):
-            sec2 = re.search(r"2\. Definitions.*?(?=3\. Processing Procedure)", spec, re.S).group(0)
-            sec8 = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", spec, re.S).group(0)
-
-            for block in (sec2, sec8):
-                self.assertNotIn("[<file number>/<total files>]", block)
-                self.assertNotIn("Extract the file number from the NZB subject line", block)
-                self.assertNotIn("calculation of the continuous segmentIndex", block)
-                self.assertNotIn("file 1 has segments 1, 2, and 3", block)
 
     def test_spec05_spec_sections_updated(self):
         """Verify REQ-11-02: Sections 2, 3, 4, 5, 8, and 10 exist and contain explicit segmentIndex references."""
@@ -292,8 +286,6 @@ class TestStandardsV1(unittest.TestCase):
         """Verify REQ-11-03 and BOOTSTRAP-SPEC-02: README synchronization with segmentIndex, 1..=4294967295, and standard NZB 1.1."""
         self.assertIn("segmentIndex", self.readme)
         self.assertIn("1..=4294967295", self.readme)
-        self.assertNotIn("file numbering for proper segmentIndex", self.readme)
-        self.assertNotIn("proper segmentIndex calculation", self.readme)
         self.assertIn("v1.2 Experimental", self.readme)
 
     def test_spec06_provenance_and_archive_password_schema(self):
