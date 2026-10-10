@@ -1,6 +1,6 @@
 SPECIFICATION: yEnc Body Encryption Standard
 Version: 1.2
-Date: 2026-10-05
+Date: 2026-10-10
 Author: Independent Specification
 
 Status: Experimental Wire Contract (v1.2)
@@ -16,157 +16,43 @@ of the transmitted data.
 ----------------------------------------------------------------------
 Change Log:
 
-Version 1.2 (2026-10-05):
-- Standardized forward-compatibility metadata gating: clients that do not
-  consume yEnc transport encryption MAY ignore the yenc_version and
-  yenc_cipher metadata entries; clients that DO consume them MUST treat
-  unsupported values as a METADATA_VALIDATION structural failure (fail
-  closed) rather than falling back to ordinary yEnc (T10).
-- Added interoperability rule: readers MUST NOT consume any segmentIndex
-  XML attribute on <segment> elements; if present they MUST ignore it,
-  and writers MUST NOT emit such attributes (T3, closes the text-vs-
-  legacy_attribute_ignored-vectors contradiction).
-- Replaced the CRC clearing wording with a positive obligation: after
-  successful Poly1305 verification decoders MUST NOT persist the
-  ciphertext wire CRC into any verification path (PAR2, quick-check,
-  whole-file CRC folding); they MUST either clear the CRC metadata
-  (crc32 = None) or recompute it over authenticated plaintext (T4).
-- Added combined-only interoperability sentence: receivers supporting
-  only combined mode MAY reject a body-only article as METADATA_VALIDATION;
-  body-only remains defined for future versions (T2).
-- Added "Transport boundary" interoperability bullet: producers MUST
-  dot-stuff per RFC 3977 Section 3.1.1, consumers MUST dot-unstuff before
-  line splitting and index counting, and <segment bytes> and size=
-  report dot-unstuffed content length, not wire length (T9).
-- Amendments (2026-10-08, documentation only; version remains 1.2):
-  - Extended the CR-02 forbidden-delimiter rule to the Body Standard:
-    the 4-byte big-endian uint32_be(segmentIndex) MUST NOT contain byte
-    values 0x0A or 0x0D in Section 4 nonce derivation, Section 5 step 2
-    grammar validation, the Section 5 retriable provider-corruption
-    tier, and the Section 8 producer skip / consumer reject requirements
-    (CR-02, previously logged only in the Control Lines Standard).
-  - Harmonized downstream CRC normalization to "clear the CRC metadata
-    (crc32 = None) or recompute it over authenticated plaintext" across
-    the Section 10 worked example, the yEnc Control Lines Encryption
-    Standard Section 5 step 7, and the README (T4).
-- Amendment (2026-10-10, documentation only; version remains 1.2):
-  added an interoperability note to Section 8 pinning canonical
-  hexadecimal case for the =yencryption parameters: producers MUST emit
-  salt=, index=, and tag= values in strict lowercase hex (HEXDIG-LOWER,
-  %x30-39 / %x61-66), and consumers SHOULD reject uppercase hexadecimal
-  digits as a grammar violation; this documents (does not change) the
-  existing grammar, which already defines only HEXDIG-LOWER, and records
-  the case treatment actual decoders implement (NZBGet's ParseYEncryption
-  enforces strict lowercase; implementations vary in leniency — writers
-  MUST NOT rely on acceptance of uppercase) (T12).
-
-2026-10-03 (editorial, post-cycle adversarial review remediation):
-- Remediated Section 10 worked example to use canonical authentication tag
-  from fixture body-vec-01-spec-example (CR-01).
-- Scoped segmentIndex carriage in Section 2 and Section 8 to distinguish
-  body-only mode from combined mode (WR-02).
-- Added explicit METADATA_VALIDATION and PROVIDER_FAILOVER tier naming in
-  Section 5 matching the README and control standard (WR-03).
-- Specified dual-namespace acceptance in Section 8 and updated Section 10
-  example to the canonical NZB namespace (WR-04).
-- Corrected Section 10 wire CRC to canonical crc32=b3185887 and annotated
-  multipart pcrc32 as illustrative (IN-02).
-
-2026-10-03 (editorial, cycle 3 adversarial review):
-- Corrected the Section 10 worked example: the payload is 16 bytes (matching
-  the canonical fixture), and its =ybegin/=yend sizes, NZB bytes attribute,
-  and multipart part arithmetic now agree with that length (C3-01, C3-02,
-  C3-03).
-- Scoped the Section 3 article-bootstrap-layout paragraph to combined mode and
-  stated that body-only articles carry no Line 1 bootstrap (C3-07).
-
-2026-10-03 (editorial, cycle 2 adversarial review):
-- Clarified that in combined mode the shared salt MUST lie in the intersection
-  of both domains (the 253-byte Alphabet) to satisfy byte-for-byte dual-
-  bootstrap agreement (C2-01).
-- Stated the combined-mode order of operations: =yencryption is restored by
-  the control layer before body grammar validation (C2-04).
-- Added normative description of the 20-byte Line 1 bootstrap layout directly
-  in Section 3, removing cross-reference-only layout ambiguity (C2-07).
-- Reconciled "128 characters" vs "128 bytes" wording, anchoring measurement to
-  dot-unstuffed line content excluding any line terminator (C2-08).
-
-2026-10-03 (editorial, cycle 1 adversarial review):
-- Defined "release" in the zero-output rule to cover any transfer to another
-  component or stage, not only the final file write, closing a partial-
-  plaintext leak reading (C1-01).
-- Stated explicitly that the wire CRC covers ciphertext, that CRC verification
-  precedes AEAD authentication, and that a CRC pass permits no release before
-  authentication succeeds (C1-02).
-- Named the PROVIDER_FAILOVER action for a dual-salt/dual-index mismatch in
-  Section 5 step 3 so the body procedure matches the control standard (C1-04).
-- Stated that a missing, truncated, or mis-sized =yencryption line is provider
-  corruption, not a structural failure (C1-09, C1-13).
-- Stated the body salt domain is the full byte range 0x00..0xFF, unlike the
-  control standard's Alphabet restriction (C1-07).
-- Associated the provider-corruption tier with the PROVIDER_FAILOVER identifier
-  (C1-06). No wire-semantic change; version remains v1.1.
-
-Version 1.1 (2026-10-01):
-- Expanded canonical =yencryption header grammar to five space-separated tokens:
-  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>.
-- Defined index parameter as exactly 8 lowercase hexadecimal digits representing
-  uint32_be(segmentIndex) in range 00000001..ffffffff (00000000 is invalid),
-  producing an exact line length of 128 characters excluding CRLF.
-- Established dual-bootstrap cross-header agreement requiring byte-for-byte
-  salt equality and value-for-value segmentIndex equality between Line 1 and
-  =yencryption, classifying mismatches as PROVIDER_FAILOVER.
-- Decoupled segment identity from NZB XML schema, removing segmentIndex
-  attributes from Section 8 and restoring clean NZB 1.1 segment elements.
-
-Version 1.0 (2026-09-27):
-- Defined NZB provenance marker <meta type="yenc_encrypted">true</meta>
-  to explicitly gate wire transport decryption while separating transport
-  keys from archive extraction passwords.
-- Specified the canonical four-token grammar for the =yencryption header:
-  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> tag=<32_hex_chars>.
-- Standardized header placement rules: physical line 2 for single-part
-  articles and physical line 3 for multipart articles after =ypart.
-- Added normative dual-salt agreement requiring raw 16-byte equality
-  between Line 1 restored salt and the =yencryption header salt.
-- Specified wire CRC handling over ciphertext before AEAD decryption,
-  followed by post-authentication CRC metadata clearing before PAR2 and
-  file assembly handoff.
-- Formalized two-tier error classification: non-retriable structural
-  failures versus retriable provider corruption, both enforcing zero
-  output of unauthenticated plaintext or ciphertext.
-- Documented transport rules including dot-unstuffed line indexing,
-  canonical CRLF generation, bare-LF decoding tolerance, and bounded
-  per-article memory limits.
-
-Version 1.0 (2026-09-25):
-- Replaced subject-derived segment numbering with explicit NZB-anchored
-  segmentIndex attribute on <segment> elements.
-- Defined exact attribute syntax: case-sensitive segmentIndex, range
-  1..=4294967295, canonical shortest ASCII decimal representation with
-  no leading zeroes, signs, whitespace, or non-digits.
-- Removed all cryptographic dependency on NZB <file subject>, NNTP
-  headers, XML file order, and segment order.
-- Specified producer requirements (continuous from 1, unique per
-  session, preserved across retries, reposts, resume) and consumer
-  requirements (strict parsing, reject zero/duplicates/malformed,
-  accept non-contiguous subsets without renumbering).
-- Clarified that decryption requires only the validated NZB segment
-  record, password, and fetched article body.
-
-Version 1.0 (2026-09-23):
-- Specified 4-byte big-endian (uint32_be, network byte order) integer
-  serialization for segmentIndex in HMAC-SHA256 nonce derivation,
-  defining the exact 19-byte message layout (SPEC-03).
-- Reinforced canonical single-line format for =yencryption control line.
-- Reaffirmed zero-output guarantee on authentication failure: complete
-  decryption failure with no partial data output.
-- Confirmed NZB file subject tag numbering and password metadata format.
-- Froze specification as v1.0 wire contract (SPEC-04).
+Version 1.2 (2026-10-10):
+- Each article identifies itself. The =yencryption line carries five
+  tokens (cipher, salt, index, tag) in strict lowercase hex, is exactly
+  128 characters long, and sits at physical line 2 (single-part) or
+  line 3 (multipart, after =ypart).
+- Added segmentIndex: an unsigned 32-bit value in 1..=4294967295, unique
+  per upload session and stable across retries, reposts, and resume.
+  Uploaders skip any value whose big-endian bytes contain 0x0A or 0x0D.
+- Nonce derivation is HMAC-SHA256(key, "yenc-body nonce" ||
+  uint32_be(segmentIndex))[0:24] over an exact 19-byte message.
+- Combined mode: the salt and segmentIndex in the control standard's
+  Line 1 bootstrap MUST equal the =yencryption values, and the shared
+  salt is drawn from the 253-byte Alphabet.
+- NZB: <meta type="yenc_encrypted">true</meta> gates transport
+  decryption and keeps the transport password apart from archive
+  passwords. Segments are standard NZB 1.1. Subjects, NNTP headers, and
+  XML order have no cryptographic role. Unsupported yenc_version or
+  yenc_cipher metadata fails closed.
+- Decoding: the wire CRC covers ciphertext and is checked before
+  authentication; afterwards decoders clear it or recompute it over
+  plaintext. Failures are either METADATA_VALIDATION (fatal) or
+  PROVIDER_FAILOVER (retry another provider), and neither releases bytes.
+- Transport: dot-stuffing per RFC 3977, 1-based line counting after
+  dot-unstuffing, CRLF emitted and bare LF accepted, memory bounded to
+  one article.
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
 - Added salt parameter to =yencryption control line format
+
+Version 0.2 (2025-10-26):
+- Added specific Argon2id parameters: time=1, memory=64MB, threads=4
+- Standardized parameter order in Argon2id function calls
+- Updated all references to Argon2id throughout the document
+
+Version 0.1 (2025-10-25):
+- Initial draft specification
 
 ----------------------------------------------------------------------
 1. Scope
@@ -347,14 +233,10 @@ whitespace. A consumer MUST reject tabs, repeated spaces, reordered, duplicate,
 missing, or extra fields, uppercase hexadecimal digits, non-hexadecimal characters,
 values of any other length, and any cipher name other than XChaCha20-Poly1305.
 
-Interoperability note — canonical hexadecimal case (T12): the salt=, index=,
-and tag= parameter values are canonically strict lowercase hexadecimal
-(HEXDIG-LOWER: %x30-39 / %x61-66). Producers MUST emit lowercase hex only.
-Consumers are encouraged to reject uppercase hexadecimal digits as a grammar
-violation; implementations differ in leniency (NZBGet's ParseYEncryption
-enforces strict lowercase, while some other implementations normalize case),
-so uppercase input MUST NOT be relied upon to decode. Emitting lowercase is
-the only case guaranteed to interoperate across implementations.
+Hexadecimal case: the salt, index, and tag values are strict lowercase
+hexadecimal (HEXDIG-LOWER: %x30-39 / %x61-66). Producers MUST emit
+lowercase only, and consumers MUST reject uppercase digits as a grammar
+violation.
 
 Single-part yEnc blocks MUST place =yencryption at physical line 2 immediately
 after =ybegin. Multipart yEnc blocks MUST place =ypart at physical line 2 and
@@ -385,8 +267,8 @@ Decryption Processing:
    with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, valid
    lowercase 8-hex index (non-zero), and valid lowercase 32-hex tag.
    The 4-byte big-endian uint32_be representation of segmentIndex MUST NOT
-   contain forbidden delimiter bytes 0x0A or 0x0D (CR-02 rule); if either byte
-   is present, treat the violation as retriable PROVIDER_FAILOVER provider corruption.
+   contain forbidden delimiter bytes 0x0A or 0x0D; if either byte is
+   present, treat the violation as retriable PROVIDER_FAILOVER provider corruption.
    The line content must be exactly 128 bytes (ASCII characters) excluding
    line terminators (CRLF or bare LF); a shorter or longer line fails the
    grammar check as a truncation or extension defect and MUST be treated
@@ -444,7 +326,7 @@ body-only remains defined for future versions.
    - An =yencryption line that violates the canonical grammar or contains an
      unsupported cipher token other than XChaCha20-Poly1305.
    - An index containing forbidden delimiter bytes (0x0A or 0x0D) in the
-     4-byte uint32_be(segmentIndex) representation (CR-02).
+     4-byte uint32_be(segmentIndex) representation.
    - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
    - Wire CRC mismatch over decoded ciphertext.
    - Poly1305 authentication tag verification failure.
@@ -515,13 +397,12 @@ The password in this tag is used to derive the transport decryption key.
 It MAY also be utilized by post-processing tools as the archive extraction
 password for RAR/7z/ZIP archives if archive passwords match.
 
-Standard NZB 1.1 Segments (Clean Segments):
+Standard NZB 1.1 Segments:
 Every <segment> element under <segments> within <file> uses standard NZB 1.1
 attributes only:
   <segment bytes="750000" number="1">article-1@example.com</segment>
-No custom segmentIndex XML attribute is emitted by uploaders or expected
-by downloaders. Segment identity is fully self-describing in article bootstrap
-bytes.
+Segment identity is carried only in the article bootstrap bytes; the NZB
+carries no encryption-specific segment data.
 
 Producer Requirements:
 For an encrypted upload, the NZB writer MUST:
@@ -530,16 +411,14 @@ For an encrypted upload, the NZB writer MUST:
 3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only.
 4. Embed the 1-based segmentIndex into the article bootstrap: the =yencryption index parameter always, and the Line 1 prefix bytes 16..19 only when combined with control line encryption.
 5. Ensure each encrypted article has a unique segmentIndex within the upload session.
-6. Assign indices continuously starting from 1 for fresh uploads, skipping every index whose four-byte big-endian uint32_be(segmentIndex) contains 0x0A or 0x0D (CR-02 rule).
+6. Assign indices continuously starting from 1 for fresh uploads, skipping every index whose four-byte big-endian uint32_be(segmentIndex) contains 0x0A or 0x0D.
 7. Preserve an article's assigned index across retries, reposts, and resume.
 
 Consumer Requirements:
 An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
 2. Read <meta type="password"> for the transport password.
-3. Treat <segment> elements as standard NZB 1.1 records: readers
-   MUST NOT consume any `segmentIndex` XML attribute on `<segment>` elements; if
-   present, they MUST ignore it. Writers MUST NOT emit such attributes.
+3. Treat <segment> elements as standard NZB 1.1 records.
    Encryption-aware readers MUST accept both canonical NZB namespaces,
    http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
    or match <segment> and other elements irrespective of default XML namespace prefixing.
@@ -593,7 +472,7 @@ Decoupling of Presentation Metadata:
 Input binary data: [16 bytes: 0x48656C6C6F20576F726C642E747874FF]
 Password: "test123"
 
-Corresponding Clean NZB 1.1 XML:
+Corresponding NZB 1.1 XML:
 
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">

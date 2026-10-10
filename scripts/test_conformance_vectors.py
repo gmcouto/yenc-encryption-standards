@@ -88,7 +88,7 @@ def extract_bootstrap_from_line1(line1_bytes: bytes) -> tuple[bytes, int, bytes]
     seg_idx = struct.unpack(">I", line1_bytes[16:20])[0]
     if seg_idx == 0:
         raise ValueError("ZERO_SEGMENT_INDEX")
-    # CR-02 (Control Std v1.2 Section 2/4/5/8): a uint32_be(segmentIndex)
+    # Index framing rule (Control Std v1.2 Section 2/4/5/8): a uint32_be(segmentIndex)
     # containing 0x0A or 0x0D injects an NNTP line delimiter into the Line 1
     # prefix and splits the bootstrap short. Decoders MUST reject under
     # PROVIDER_FAILOVER.
@@ -272,7 +272,7 @@ def parse_yencryption_line_v11(line: str) -> dict:
     segment_index = int(index_hex, 16)
     if segment_index == 0:
         raise ValueError("ZERO_SEGMENT_INDEX")
-    # CR-02: same forbidden-byte rule as the Line 1 bootstrap (v1.2).
+    # Same forbidden-byte rule as the Line 1 bootstrap (v1.2).
     for b in uint32_be(segment_index):
         if b in (0x0A, 0x0D):
             raise ValueError("FORBIDDEN_SEGMENT_INDEX_BYTE")
@@ -528,7 +528,7 @@ class TestConformanceVectors(unittest.TestCase):
                             extract_bootstrap_from_line1(bytes.fromhex(case["tampered_salt_hex"]) + struct.pack(">I", 1) + b"==")
                     elif "line1_hex" in case:
                         # Dispatch on the vector's own expected_error token so
-                        # CR-02 (FORBIDDEN_SEGMENT_INDEX_BYTE), zero-index, and
+                        # forbidden-index-byte, zero-index, and
                         # truncation vectors each assert their own class.
                         with self.assertRaisesRegex(ValueError, re.escape(case["expected_error"])):
                             extract_bootstrap_from_line1(bytes.fromhex(case["line1_hex"]))
@@ -575,7 +575,7 @@ class TestConformanceVectors(unittest.TestCase):
         return root.findall(".//{http://www.newzbin.com/DTD/2003/nzb}segment")
 
     def test_vec06_nzb_segment_identity(self):
-        """Verify clean standard NZB 1.1 segment fixtures contain no custom segmentIndex attributes."""
+        """Verify NZB fixtures use only standard NZB 1.1 segment attributes."""
         self.assertEqual(self.nzb_identity_data["requirement"], "VEC-06")
         for case in self.nzb_identity_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
@@ -588,7 +588,7 @@ class TestConformanceVectors(unittest.TestCase):
                     self.assertIn("password", metadata)
 
     def test_vec07_index_allocation(self):
-        """Verify CR-02 uploader skip vectors: forbidden candidates are skipped,
+        """Verify uploader index skip vectors: forbidden candidates are skipped,
         assigned indices never contain 0x0A/0x0D, and 269 itself is forbidden."""
         self.assertEqual(self.index_allocation_data["requirement"], "VEC-07")
         for case in self.index_allocation_data["vectors"]:

@@ -1,6 +1,6 @@
 SPECIFICATION: yEnc Control Lines Encryption Standard
 Version: 1.2
-Date: 2026-10-05
+Date: 2026-10-10
 Author: Independent Specification
 
 Status: Experimental Wire Contract (v1.2)
@@ -17,155 +17,39 @@ required for Usenet transmission.
 ----------------------------------------------------------------------
 Change Log:
 
-Version 1.2 (2026-10-05):
-- Clarified Section 5 step 4 header-loop probe semantics: only FF1
-  decryption SUCCESS whose plaintext does not begin with "=y" terminates
-  the header loop (first data line); an FF1 decryption error on a line in
-  the header region is PROVIDER_FAILOVER, never data-line passthrough (T7).
-- Clarified the definition of N in Section 2 and Section 5 step 1: N is
-  the 1-based line index of the =yend footer line; trailing blank lines
-  after the footer are outside the yEnc block and are excluded from
-  lineIndex accounting (T10-clarify).
-- Standardized clean-NZB consumption: readers MUST NOT consume any
-  segmentIndex XML attribute on <segment> elements (mirrors the body
-  standard v1.2, T3).
-- Added "Transport boundary" interoperability note: producers MUST
-  dot-stuff per RFC 3977 Section 3.1.1, consumers MUST dot-unstuff before
-  line splitting and index counting, and <segment bytes> and size=
-  report dot-unstuffed content length (T9).
-- Standardized forward-compatibility metadata gating for yenc_version /
-  yenc_cipher metadata: non-consuming clients MAY ignore; consuming
-  clients MUST treat unsupported values as METADATA_VALIDATION (T10).
-- CR-02 skip-in-writer behavior already present (no change): uploaders
-  skip indices whose uint32_be contains 0x0A or 0x0D (indices 10, 13,
-  266, and 269 are examples).
-- Amendment (2026-10-08, documentation only; version remains 1.2):
-  harmonized Section 5 step 7 downstream CRC normalization with the
-  Body Standard v1.2 positive obligation: decoders MUST either clear
-  the CRC metadata (crc32 = None) or recompute it over authenticated
-  plaintext (T4).
-
-2026-10-03 (editorial, post-cycle adversarial review remediation):
-- Added normative framing guard forbidding byte values 0x0A and 0x0D in
-  uint32_be(segmentIndex), requiring uploaders to skip such indices and
-  decoders to reject under PROVIDER_FAILOVER (CR-02).
-- Corrected Section 10 line-1 byte counts: plaintext is 36 bytes, ciphertext
-  is 36 bytes, and wire total is 56 bytes (WR-01).
-- Specified dual-namespace acceptance in Section 8 and updated Section 10
-  example to the canonical NZB namespace (WR-04).
-- Normalized indentation of bullets in Section 4 Parameters to exactly two
-  leading spaces (IN-01).
-
-2026-10-03 (editorial, cycle 3 adversarial review):
-- Resolved contradictory header-loop bounds in Section 5 step 4a: the loop
-  stops before lineIndex = N, and the no-data-line outcome is restated without
-  the second bound (C3-06).
-- Corrected the Section 10 NZB bytes attribute to the segment payload size
-  (18) so it matches =yend size=18 and the body standard's convention (C3-04).
-- Replaced the "printable" characterization of the 253-byte Alphabet with the
-  CR/LF-free byte-range definition in the Abstract, Section 1, Section 4, and
-  Section 11 (C3-05).
-
-2026-10-03 (editorial, cycle 2 adversarial review):
-- Clarified that in combined mode the shared salt MUST lie in the intersection
-  of both domains (the 253-byte Alphabet) to satisfy byte-for-byte dual-
-  bootstrap agreement (C2-01).
-- Stated that line terminators are preserved byte-for-byte on reconstruction;
-  a decoder MUST NOT canonicalize bare LF to CRLF (C2-02).
-- Stated that the 20-byte Line 1 expansion is measured on line content
-  excluding trailing line terminators (C2-03).
-- Clarified that bootstrap extraction occurs after NNTP dot-unstuffing has been
-  applied to line 1 (C2-05).
-- Named the LINE_TOO_SHORT and INVALID_SALT_CHARACTER identifiers in the
-  provider corruption tier, synchronizing with malformed_inputs.json (C2-06).
-
-2026-10-03 (editorial, cycle 1 adversarial review):
-- Defined "release" in the zero-output rule to cover any transfer to another
-  component or stage, not only the final file write (C1-01).
-- Classified restored-header restore failures (other than Line 1 and Line N)
-  and header/data boundary disagreements as PROVIDER_FAILOVER (C1-03).
-- Bound the header decryption loop to stop before lineIndex = N so the footer
-  is never decrypted twice, and specified the no-data-line outcome (C1-11).
-- Defined uniform Alphabet salt sampling and prohibited biased reduction in
-  both the parameters and the encryption procedure (C1-05).
-- Named the two error tiers with the METADATA_VALIDATION and PROVIDER_FAILOVER
-  identifiers used by the README (C1-06, C1-08).
-- Stated that =yencryption line placement is checked positionally and is
-  unaffected by whether the check runs before or after restoration (C1-14).
-  No wire-semantic change; version remains v1.1.
-
-Version 1.1 (2026-10-01):
-- Specified 20-byte article bootstrap prefix prepended to Line 1:
-  16-byte raw Alphabet salt followed by 4-byte big-endian uint32 segmentIndex.
-- Updated Line 1 expansion to exactly 20 bytes; overall yEnc block length
-  increases by exactly 20 bytes; minimum Line 1 length is 22 bytes.
-- Established dual-bootstrap cross-header agreement requiring byte-for-byte
-  salt equality and value-for-value segmentIndex equality between Line 1 and
-  =yencryption, classifying mismatches as PROVIDER_FAILOVER.
-- Decoupled segment identity from NZB XML schema, removing segmentIndex
-  attributes from Section 8 and standardizing clean NZB 1.1 segment elements.
-- Synchronized with 5-token canonical =yencryption header grammar.
-
-Version 1.0 (2026-09-27):
-- Synchronized shared wire semantics with yEnc Body Encryption Standard.
-- Defined NZB provenance marker <meta type="yenc_encrypted">true</meta>
-  to gate transport decryption while decoupling transport keys from
-  archive extraction passwords.
-- Established normative dual-salt agreement: the 16-byte raw salt
-  prepended to Line 1 must match the 16-byte salt carried in the
-  =yencryption header in combined mode byte-for-byte.
-- Standardized combined header placement: physical line 2 for single-part
-  articles and physical line 3 for multipart articles after =ypart, using
-  the canonical four-token grammar defined by the body standard.
-- Formalized two-tier error classification: non-retriable structural
-  failures versus retriable provider corruption, enforcing zero
-  output of unauthenticated plaintext or ciphertext.
-- Documented transport rules including dot-unstuffed line indexing,
-  canonical CRLF generation, bare-LF decoding tolerance, and bounded
-  per-article memory limits.
-
-Version 1.0 (2026-09-25):
-- Replaced subject-derived segment numbering with explicit NZB-anchored
-  segmentIndex attribute on <segment> elements.
-- Defined exact attribute syntax: case-sensitive segmentIndex, range
-  1..=4294967295, canonical shortest ASCII decimal representation with
-  no leading zeroes, signs, whitespace, or non-digits.
-- Removed all cryptographic dependency on NZB <file subject>, NNTP
-  headers, XML file order, and segment order.
-- Specified producer requirements (continuous from 1, unique per
-  session, preserved across retries, reposts, resume) and consumer
-  requirements (strict parsing, reject zero/duplicates/malformed,
-  accept non-contiguous subsets without renumbering).
-- Clarified that decryption requires only the validated NZB segment
-  record, password, and fetched article body.
-
-Version 1.0 (2026-09-23):
-- Resolved salt carriage contradiction: clarified that the first
-  encrypted control line (lineIndex=1) expands by exactly 16 bytes due
-  to the prepended random salt, while subsequent control lines (lineIndex > 1)
-  preserve exact plaintext length, and data lines remain untouched (SPEC-01).
-- Removed stale v0.2 claims regarding identical length on all lines and
-  deterministic salt derivation (SPEC-01).
-- Resolved lineIndex counting ambiguity: defined lineIndex strictly as the
-  1-based physical line number of every line (header, data, footer) within
-  the yEnc block (1 <= lineIndex <= N) (SPEC-02).
-- Specified canonical 253-byte Alphabet numeral bijection table (mapping
-  byte octets to integer numerals 0..252) and reverse mapping (SPEC-02).
-- Updated line processing loops to increment lineIndex sequentially on
-  every physical line (SPEC-02).
-- Specified 4-byte big-endian (uint32_be, network byte order) integer
-  serialization for segmentIndex and lineIndex in HMAC-SHA256 tweak
-  derivation inputs (exact 26-byte message layout) (SPEC-03).
-- Confirmed encKey derivation uses 16 bytes ASCII prefix "yenc-control key"
-  (SPEC-03).
-- Updated worked example with salt expansion, exact length preservation,
-  and 1-based physical line numbering (SPEC-01, SPEC-02).
-- Froze specification as v1.0 wire contract (SPEC-04).
+Version 1.2 (2026-10-10):
+- Line 1 starts with a 20-byte article bootstrap: 16 salt bytes from the
+  Alphabet followed by uint32_be(segmentIndex). Line 1 grows by exactly
+  20 bytes, lines 2..N keep their length, and data lines are untouched.
+- Added segmentIndex: an unsigned 32-bit value in 1..=4294967295, unique
+  per upload session and stable across retries, reposts, and resume.
+  Uploaders skip, and decoders reject, any value whose big-endian bytes
+  contain 0x0A or 0x0D.
+- lineIndex is the 1-based physical line number of every line in the
+  block after dot-unstuffing, from =ybegin (1) to =yend (N).
+- Tweak derivation is HMAC-SHA256(masterKey, "yenc-control tweak" ||
+  uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8] over an exact
+  26-byte message. The Alphabet has a fixed byte-to-numeral mapping and
+  salt bytes are sampled uniformly from it.
+- Decoding restores Line 1, then header lines up to the first data line,
+  then the =yend footer. Line terminators are kept byte for byte.
+- Combined mode: the Line 1 salt and segmentIndex MUST equal the
+  =yencryption values defined by the body standard.
+- NZB metadata, error tiers, the zero-output rule, transport rules, and
+  memory bounds match the body standard.
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
   from alphabet
 - Added salt embedding in first encrypted control line
+
+Version 0.2 (2025-10-26):
+- Added specific Argon2id parameters: time=1, memory=64MB, threads=4
+- Standardized parameter order in Argon2id function calls
+- Updated all references to Argon2id throughout the document
+
+Version 0.1 (2025-10-25):
+- Initial draft specification
 
 ----------------------------------------------------------------------
 1. Scope
@@ -577,13 +461,12 @@ The password in this tag is used to derive the transport decryption key.
 It MAY also be utilized by post-processing tools as the archive extraction
 password for RAR/7z/ZIP archives if archive passwords match.
 
-Standard NZB 1.1 Segments (Clean Segments):
+Standard NZB 1.1 Segments:
 Every <segment> element under <segments> within <file> uses standard NZB 1.1
 attributes only:
   <segment bytes="750000" number="1">article-1@example.com</segment>
-No custom segmentIndex XML attribute is emitted by uploaders or expected
-by downloaders. Segment identity is fully self-describing in article bootstrap
-bytes.
+Segment identity is carried only in the article bootstrap bytes; the NZB
+carries no encryption-specific segment data.
 
 Producer Requirements:
 For an encrypted upload, the NZB writer MUST:
@@ -601,11 +484,8 @@ Consumer Requirements:
 An encryption-aware NZB reader MUST:
 1. Inspect <head> for <meta type="yenc_encrypted">true</meta>.
 2. Read <meta type="password"> for the transport password.
-3. Treat <segment> elements as standard NZB 1.1 records: readers MUST NOT
-   consume any `segmentIndex` XML attribute on `<segment>` elements; if
-   present, they MUST ignore it. Writers MUST NOT emit such attributes.
-   Encryption-aware readers MUST
-   accept both canonical NZB namespaces,
+3. Treat <segment> elements as standard NZB 1.1 records.
+   Encryption-aware readers MUST accept both canonical NZB namespaces,
    http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
    or match <segment> and other elements irrespective of default XML namespace prefixing.
 4. Extract segmentIndex and salt directly from fetched article bootstrap bytes,
@@ -664,7 +544,7 @@ Input plaintext yEnc block:
   ghiJKL456
   =yend size=18
 
-Corresponding Clean NZB 1.1 XML:
+Corresponding NZB 1.1 XML:
 
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">
@@ -740,7 +620,7 @@ encrypted messages that:
   - Maintain dual-bootstrap agreement when combined with body encryption.
   - Follow strict header placement rules for single-part (line 2) and multipart (line 3).
   - Require <meta type="yenc_encrypted">true</meta> in NZB metadata.
-  - Decouple segment identity from NZB XML schema, standardizing clean NZB 1.1.
+  - Carry segment identity in the article bootstrap, leaving NZB segments standard.
   - Preserve exact message structure and line endings (CRLF canonical, bare LF accepted).
   - Remain within the CR/LF-free 253-byte Alphabet and safe for Usenet transport.
   - Enforce two-tier error handling with zero output on failure.

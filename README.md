@@ -32,7 +32,7 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 1. Encrypted Transport: When yEnc encryption is present, the NZB `<head>` MUST contain `<meta type="yenc_encrypted">true</meta>`. The download client reads the password from `<meta type="password">` to decrypt the yEnc transport stream.
 2. Archive Password Decoupling: If an NZB contains `<meta type="password">` without `<meta type="yenc_encrypted">true</meta>`, the password applies solely to downstream extraction tools. The download client MUST process segments as standard unencrypted yEnc blocks without attempting transport decryption.
 
-### NZB 1.1 Clean Segment Example (Encrypted Release)
+### NZB 1.1 Example (Encrypted Release)
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,8 +93,8 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 - `segmentIndex` is an explicit unsigned 32-bit integer in range `1..=4294967295` encoded in article bootstrap bytes: carried in the `=yencryption index parameter` and also in Line 1 bytes 16..19 only when control line encryption is also applied.
 - Formatting is a 4-byte big-endian integer on Line 1 and an 8-character lowercase hexadecimal string in =yencryption.
 - Each segmentIndex is globally unique across the entire upload session.
-- CR-02 index framing guard: producers MUST skip any `segmentIndex` whose 4-byte big-endian representation contains bytes `0x0A` (LF) or `0x0D` (CR); receivers MUST reject such indices under `PROVIDER_FAILOVER`.
-- NZB segment tags contain no custom XML attributes; downloaders extract segment identity directly from article bytes. Readers MUST accept both canonical NZB namespaces, http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd, or match elements irrespective of namespace prefixing.
+- Index framing rule: producers MUST skip any `segmentIndex` whose 4-byte big-endian representation contains bytes `0x0A` (LF) or `0x0D` (CR); receivers MUST reject such indices under `PROVIDER_FAILOVER`.
+- NZB segments are standard NZB 1.1; downloaders extract segment identity directly from article bytes. Readers MUST accept both canonical NZB namespaces, http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd, or match elements irrespective of namespace prefixing.
 - NNTP headers, file subjects, and XML (file or segment) ordering carry no cryptographic meaning.
 
 ## Processing and Failure Rules
@@ -103,9 +103,9 @@ The downloader reads the NZB metadata before requesting an article. A compliant 
 
 For a single-part block, `=yencryption` is physical line 2, immediately after `=ybegin`. For a multipart block, `=ypart` remains line 2 and `=yencryption` is line 3. The canonical wire line is `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>`. Each placeholder is replaced by lowercase hexadecimal characters: salt is 32 hex chars, index is 8 hex chars (uint32_be in range 00000001..ffffffff), and tag is 32 hex chars, producing exactly 128 characters excluding CRLF. The line uses one ASCII space between its five tokens and has no leading or trailing whitespace. Parsers reject any other field order, spacing, field count, cipher name, character set, or value length.
 
-When both standards are used, the raw salt and uint32_be segmentIndex prepended to Line 1 and the hexadecimal salt and index in `=yencryption` MUST represent the same values. Wire CRC values cover ciphertext and are checked before AEAD decryption. After authentication succeeds, decoders MUST NOT persist the ciphertext wire CRC into any verification path (PAR2, quick-check, whole-file CRC folding); they either clear the CRC metadata or recompute it over authenticated plaintext. Producers MUST dot-stuff per RFC 3977 Section 3.1.1 and consumers MUST dot-unstuff before line splitting and index counting; segment byte counts report dot-unstuffed content length. Readers MUST NOT consume any segmentIndex XML attribute on <segment> elements (ignored if present) and writers MUST NOT emit such attributes.
+When both standards are used, the raw salt and uint32_be segmentIndex prepended to Line 1 and the hexadecimal salt and index in `=yencryption` MUST represent the same values. Wire CRC values cover ciphertext and are checked before AEAD decryption. After authentication succeeds, decoders MUST NOT persist the ciphertext wire CRC into any verification path (PAR2, quick-check, whole-file CRC folding); they either clear the CRC metadata or recompute it over authenticated plaintext. Producers MUST dot-stuff per RFC 3977 Section 3.1.1 and consumers MUST dot-unstuff before line splitting and index counting; segment byte counts report dot-unstuffed content length.
 
-Failures in NZB metadata or local configuration before article retrieval are structural. Missing provenance, malformed XML, a missing password, or a locally unsupported encryption mode is fatal and MUST NOT trigger provider failover. Failures in fetched article bytes after those checks pass are provider corruption. This includes malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; dual-salt or dual-index mismatch; CRC mismatch; a segmentIndex whose 4-byte big-endian representation contains bytes 0x0A or 0x0D (CR-02 rule); truncation; and AEAD authentication failure. Clients retry provider corruption on eligible alternate providers. Both tiers release zero plaintext and zero ciphertext as final output.
+Failures in NZB metadata or local configuration before article retrieval are structural. Missing provenance, malformed XML, a missing password, or a locally unsupported encryption mode is fatal and MUST NOT trigger provider failover. Failures in fetched article bytes after those checks pass are provider corruption. This includes malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; dual-salt or dual-index mismatch; CRC mismatch; a segmentIndex whose 4-byte big-endian representation contains bytes 0x0A or 0x0D; truncation; and AEAD authentication failure. Clients retry provider corruption on eligible alternate providers. Both tiers release zero plaintext and zero ciphertext as final output.
 
 ## Wire Specifications and Invariants
 
@@ -158,7 +158,7 @@ Because AEAD authentication must finish before plaintext release, an implementat
 
 ## Status
 
-Both specifications are published as experimental v1.2 wire contracts (v1.2 Experimental) dated 2026-10-05. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF in body-only mode, while the control standard's salt is sampled uniformly from its 253-byte Alphabet; in combined mode the shared salt is constrained to the 253-byte Alphabet intersection. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps and clean NZB 1.1 decoupling.
+Both specifications are published as experimental v1.2 wire contracts (v1.2 Experimental) dated 2026-10-10. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The body standard's 16-byte salt is sampled over the full byte range 0x00..0xFF in body-only mode, while the control standard's salt is sampled uniformly from its 253-byte Alphabet; in combined mode the shared salt is constrained to the 253-byte Alphabet intersection. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps, so NZB segments stay standard NZB 1.1.
 
 ## Contributing
 

@@ -3,7 +3,7 @@
 
 Tests conformance against:
 - BOOTSTRAP-SPEC-01: Control line 20-byte bootstrap prefix and 5-token canonical grammar
-- BOOTSTRAP-SPEC-02: Clean NZB 1.1 decoupling and removal of XML segmentIndex attributes
+- BOOTSTRAP-SPEC-02: Standard NZB 1.1 segments with identity carried in article bytes
 - SPEC-01: Control line bootstrap carriage and length preservation rules
 - SPEC-02: 1-based physical lineIndex counting and 253-byte alphabet numeral bijection
 - SPEC-03: Big-endian uint32_be integer serialization in HMAC-SHA256 derivations
@@ -135,27 +135,27 @@ class TestStandardsV1(unittest.TestCase):
         """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for control lines: Version 1.2, experimental wire contract, updated date, and Change Log."""
         self.assertIn("SPECIFICATION: yEnc Control Lines Encryption Standard", self.control_spec)
         self.assertIn("Version: 1.2", self.control_spec)
-        self.assertRegex(self.control_spec, r"Date:\s+2026-10-05")
+        self.assertRegex(self.control_spec, r"Date:\s+2026-10-10")
         self.assertIn("Status: Experimental Wire Contract (v1.2)", self.control_spec)
         self.assertIn("Category: Standards Track", self.control_spec)
-        self.assertIn("Version 1.2 (2026-10-05):", self.control_spec)
+        self.assertIn("Version 1.2 (2026-10-10):", self.control_spec)
 
     def test_spec04_body_version(self):
         """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for body encryption: Version 1.2, experimental wire contract, updated date, and Change Log."""
         self.assertIn("SPECIFICATION: yEnc Body Encryption Standard", self.body_spec)
         self.assertIn("Version: 1.2", self.body_spec)
-        self.assertRegex(self.body_spec, r"Date:\s+2026-10-05")
+        self.assertRegex(self.body_spec, r"Date:\s+2026-10-10")
         self.assertIn("Status: Experimental Wire Contract (v1.2)", self.body_spec)
         self.assertIn("Category: Standards Track", self.body_spec)
-        self.assertIn("Version 1.2 (2026-10-05):", self.body_spec)
+        self.assertIn("Version 1.2 (2026-10-10):", self.body_spec)
 
     def test_spec04_version_frozen(self):
         """Verify SPEC-04 across all specs: Version 1.2, experimental wire contract, updated date, and Change Log."""
         for spec_text in (self.body_spec, self.control_spec):
             self.assertIn("Version: 1.2", spec_text)
             self.assertIn("Status: Experimental Wire Contract (v1.2)", spec_text)
-            self.assertRegex(spec_text, r"Date:\s+2026-10-05")
-            self.assertIn("Version 1.2 (2026-10-05):", spec_text)
+            self.assertRegex(spec_text, r"Date:\s+2026-10-10")
+            self.assertIn("Version 1.2 (2026-10-10):", spec_text)
 
     def test_spec04_readme_synchronized(self):
         """Verify SPEC-04 README synchronization: status badge and no obsolete deterministic salt text."""
@@ -163,7 +163,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIn("v1.2 Experimental", self.readme)
 
     def test_spec05_nzb_segment_index_extension(self):
-        """Verify BOOTSTRAP-SPEC-02: Section 8 requires clean NZB 1.1 segments and removes custom segmentIndex XML attribute."""
+        """Verify BOOTSTRAP-SPEC-02: Section 8 requires standard NZB 1.1 segments with identity in article bytes."""
         for spec in (self.body_spec, self.control_spec):
             sec8_match = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability)", spec, re.S)
             self.assertIsNotNone(sec8_match)
@@ -171,15 +171,14 @@ class TestStandardsV1(unittest.TestCase):
             self.assertIn('<meta type="password">', sec8)
             self.assertIn('<meta type="yenc_encrypted">true</meta>', sec8)
             self.assertIn("<segment", sec8)
-            # Section 8 MUST NOT mandate or use segmentIndex XML attribute on segment elements
             self.assertNotIn('segmentIndex="', sec8)
-            self.assertRegex(sec8, r"(?i)no custom segmentIndex XML attribute")
+            self.assertRegex(sec8, r"(?i)carries no encryption-specific segment data")
 
             self.assertIn("segmentIndex", spec)
             self.assertIn("1..=4294967295", spec)
 
     def test_spec05_nzb_identity_control(self):
-        """Verify REQ-11-02 and BOOTSTRAP-SPEC-02 for control lines: segmentIndex in Section 2, 3, 4, 5, 8, and 10 with clean NZB."""
+        """Verify REQ-11-02 and BOOTSTRAP-SPEC-02 for control lines: segmentIndex in Section 2, 3, 4, 5, 8, and 10 with standard NZB 1.1."""
         sec2 = re.search(r"2\. Definitions.*?(?=3\. Processing Procedure)", self.control_spec, re.S)
         self.assertIsNotNone(sec2)
         self.assertIn("segmentIndex", sec2.group(0))
@@ -240,7 +239,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertNotIn('segmentIndex="', sec10.group(0))
 
     def test_spec05_producer_consumer_rules(self):
-        """Verify BOOTSTRAP-SPEC-02: producer/consumer obligations in Section 8 of both specifications for clean NZB 1.1."""
+        """Verify BOOTSTRAP-SPEC-02: producer/consumer obligations in Section 8 of both specifications for standard NZB 1.1."""
         for spec in (self.body_spec, self.control_spec):
             sec8_match = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", spec, re.S)
             self.assertIsNotNone(sec8_match)
@@ -290,7 +289,7 @@ class TestStandardsV1(unittest.TestCase):
                 )
 
     def test_spec05_readme_sync(self):
-        """Verify REQ-11-03 and BOOTSTRAP-SPEC-02: README synchronization with segmentIndex, 1..=4294967295, and clean NZB 1.1."""
+        """Verify REQ-11-03 and BOOTSTRAP-SPEC-02: README synchronization with segmentIndex, 1..=4294967295, and standard NZB 1.1."""
         self.assertIn("segmentIndex", self.readme)
         self.assertIn("1..=4294967295", self.readme)
         self.assertNotIn("file numbering for proper segmentIndex", self.readme)
