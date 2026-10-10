@@ -38,6 +38,27 @@ Version 1.2 (2026-10-05):
   dot-stuff per RFC 3977 Section 3.1.1, consumers MUST dot-unstuff before
   line splitting and index counting, and <segment bytes> and size=
   report dot-unstuffed content length, not wire length (T9).
+- Amendments (2026-10-08, documentation only; version remains 1.2):
+  - Extended the CR-02 forbidden-delimiter rule to the Body Standard:
+    the 4-byte big-endian uint32_be(segmentIndex) MUST NOT contain byte
+    values 0x0A or 0x0D in Section 4 nonce derivation, Section 5 step 2
+    grammar validation, the Section 5 retriable provider-corruption
+    tier, and the Section 8 producer skip / consumer reject requirements
+    (CR-02, previously logged only in the Control Lines Standard).
+  - Harmonized downstream CRC normalization to "clear the CRC metadata
+    (crc32 = None) or recompute it over authenticated plaintext" across
+    the Section 10 worked example, the yEnc Control Lines Encryption
+    Standard Section 5 step 7, and the README (T4).
+- Amendment (2026-10-10, documentation only; version remains 1.2):
+  added an interoperability note to Section 8 pinning canonical
+  hexadecimal case for the =yencryption parameters: producers MUST emit
+  salt=, index=, and tag= values in strict lowercase hex (HEXDIG-LOWER,
+  %x30-39 / %x61-66), and consumers SHOULD reject uppercase hexadecimal
+  digits as a grammar violation; this documents (does not change) the
+  existing grammar, which already defines only HEXDIG-LOWER, and records
+  the case treatment actual decoders implement (NZBGet's ParseYEncryption
+  enforces strict lowercase; implementations vary in leniency — writers
+  MUST NOT rely on acceptance of uppercase) (T12).
 
 2026-10-03 (editorial, post-cycle adversarial review remediation):
 - Remediated Section 10 worked example to use canonical authentication tag
@@ -325,6 +346,15 @@ A producer MUST emit exactly one SP between tokens and no leading or trailing
 whitespace. A consumer MUST reject tabs, repeated spaces, reordered, duplicate,
 missing, or extra fields, uppercase hexadecimal digits, non-hexadecimal characters,
 values of any other length, and any cipher name other than XChaCha20-Poly1305.
+
+Interoperability note — canonical hexadecimal case (T12): the salt=, index=,
+and tag= parameter values are canonically strict lowercase hexadecimal
+(HEXDIG-LOWER: %x30-39 / %x61-66). Producers MUST emit lowercase hex only.
+Consumers are encouraged to reject uppercase hexadecimal digits as a grammar
+violation; implementations differ in leniency (NZBGet's ParseYEncryption
+enforces strict lowercase, while some other implementations normalize case),
+so uppercase input MUST NOT be relied upon to decode. Emitting lowercase is
+the only case guaranteed to interoperate across implementations.
 
 Single-part yEnc blocks MUST place =yencryption at physical line 2 immediately
 after =ybegin. Multipart yEnc blocks MUST place =ypart at physical line 2 and

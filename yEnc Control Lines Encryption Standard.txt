@@ -39,6 +39,11 @@ Version 1.2 (2026-10-05):
 - CR-02 skip-in-writer behavior already present (no change): uploaders
   skip indices whose uint32_be contains 0x0A or 0x0D (indices 10, 13,
   266, and 269 are examples).
+- Amendment (2026-10-08, documentation only; version remains 1.2):
+  harmonized Section 5 step 7 downstream CRC normalization with the
+  Body Standard v1.2 positive obligation: decoders MUST either clear
+  the CRC metadata (crc32 = None) or recompute it over authenticated
+  plaintext (T4).
 
 2026-10-03 (editorial, post-cycle adversarial review remediation):
 - Added normative framing guard forbidding byte values 0x0A and 0x0D in
