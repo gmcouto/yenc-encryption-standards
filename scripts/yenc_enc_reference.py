@@ -130,6 +130,17 @@ def derive_control_keys(master_key: bytes, segment_index: int, line_index: int):
     return enc_key, tweak
 
 
+def ybegin_is_multipart(ybegin_line: str) -> bool:
+    """True when a part= keyword appears before name= (Body Std Section 3).
+
+    name= is the last =ybegin keyword and its value runs to the end of the
+    line, so a part= inside the file name never makes an article multipart.
+    """
+    name_pos = ybegin_line.find(" name=")
+    keywords = ybegin_line if name_pos == -1 else ybegin_line[:name_pos]
+    return any(token.startswith("part=") for token in keywords.split(" ")[1:])
+
+
 def combined_mode_layout(ybegin_line: str) -> dict:
     """Return the deterministic combined-mode layout (Control Std Section 5 step 4).
 
@@ -138,6 +149,6 @@ def combined_mode_layout(ybegin_line: str) -> dict:
       single-part: header lines 1..2, first data line D = 3
       multipart:   header lines 1..3, first data line D = 4
     """
-    if "part=" in ybegin_line:
+    if ybegin_is_multipart(ybegin_line):
         return {"multipart": True, "header_line_indices": [1, 2, 3], "first_data_line": 4}
     return {"multipart": False, "header_line_indices": [1, 2], "first_data_line": 3}

@@ -184,6 +184,28 @@
       ]
     },
     {
+      "id": "control-vec-12-single-part-name-contains-part",
+      "description": "Single-part article whose =ybegin name contains ' part=': only keywords before name= count, so the layout is single-part (=yencryption at line 2, D = 3)",
+      "password": "test123",
+      "salt_hex": "4b376d5839704c32715238764e34775a",
+      "segment_index": 1,
+      "total_physical_lines": 4,
+      "expected_multipart": false,
+      "expected_first_data_line": 3,
+      "input_lines": [
+        "=ybegin line=128 size=1 name=my part=2.bin",
+        "=yencryption cipher=XChaCha20-Poly1305 salt=4b376d5839704c32715238764e34775a index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
+        "F",
+        "=yend size=1 crc32=16df26f1"
+      ],
+      "expected_wire_lines_hex": [
+        "4b376d5839704c32715238764e34775a000000012353e5efbf4e5d86a7cfb18b2b26f84133b9fd2b84c57e2e779a4cb78321ffffdbe91c8eb076c4d11a7c",
+        "7ebf87254605c04dbe246fe4612f24ebee403e936acac9f0f46cba27eaf69a2055379de0472aa95ddaffe52c76e466da60b550474a51b19b2f8666909f6f8b46ddf1e2196d65aee9974e3d8f05fb8aeaf6e723f291a1714015d7f8fd5d0160f55cced913336080c4f1d10209a09b50515f890b31bf3323c7d741f5426b3c3a80",
+        "46",
+        "bc4820383971bf86854d7061bfcfef472ca4fd89691a7a54626c13"
+      ]
+    },
+    {
       "id": "control-vec-08-full-article-54-lines",
       "description": "Full 54-line article: verifies physical line counting 1..54 across header, data, and footer",
       "password": "test123",

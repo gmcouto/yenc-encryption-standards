@@ -887,6 +887,41 @@ def generate_control_line_vectors(path: Path):
         }
     )
 
+    # Single-part article whose name contains " part=": only keywords before
+    # name= decide the layout (Body Std Section 3), so =yencryption is line 2.
+    art_name_part_lines = [
+        "=ybegin line=128 size=1 name=my part=2.bin",
+        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
+        "F",
+        "=yend size=1 crc32=16df26f1",
+    ]
+    art_name_part_wire = []
+    for l_idx, line in enumerate(art_name_part_lines, start=1):
+        if line.startswith("=y"):
+            enc_k, twk = derive_control_keys(master_key, 1, l_idx)
+            ct_b = ff1_encrypt(enc_k, twk, line.encode("ascii"))
+            if l_idx == 1:
+                art_name_part_wire.append((salt_bytes + uint32_be(1) + ct_b).hex().lower())
+            else:
+                art_name_part_wire.append(ct_b.hex().lower())
+        else:
+            art_name_part_wire.append(line.encode("ascii").hex().lower())
+
+    vectors.append(
+        {
+            "id": "control-vec-12-single-part-name-contains-part",
+            "description": "Single-part article whose =ybegin name contains ' part=': only keywords before name= count, so the layout is single-part (=yencryption at line 2, D = 3)",
+            "password": password,
+            "salt_hex": salt_hex.lower(),
+            "segment_index": 1,
+            "total_physical_lines": 4,
+            "expected_multipart": False,
+            "expected_first_data_line": 3,
+            "input_lines": art_name_part_lines,
+            "expected_wire_lines_hex": art_name_part_wire,
+        }
+    )
+
     # 54-line article: =ybegin (1), =ypart (2), =yencryption (3), 50 data lines (4..53), =yend (54)
     art54_lines = [
         "=ybegin part=1 total=1 line=128 size=700000 name=data.bin",
@@ -1180,7 +1215,7 @@ def generate_malformed_input_vectors(path: Path):
         {
             "id": "auth-failure-08-mutated-segment-bytes",
             "category": "auth_failure",
-            "description": "AAD segment byte count mutated (NZB bytes attribute disagrees with geometry) must fail authentication and zero output",
+            "description": "AAD segment byte count mutated (restored geometry differs from the encrypted one) must fail authentication and zero output",
             "password": password,
             "salt_hex": salt_hex,
             "segment_index": 1,

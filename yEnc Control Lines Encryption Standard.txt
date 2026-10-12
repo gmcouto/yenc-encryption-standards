@@ -51,8 +51,13 @@ Version 1.2 (2026-10-10):
 - Decoding restores Line 1, then the fixed header positions inferred
   from the restored structure, then the =yend footer identified by
   position. Line terminators are kept byte for byte.
-- An article is multipart when its =ybegin line carries a part= keyword,
-  even if total=1; multipart articles carry =ypart at line 2.
+- An article is multipart when its =ybegin line carries a part= keyword
+  among the keywords before name=, even if total=1; multipart articles
+  carry =ypart at line 2. The name= value runs to the end of the line
+  and never counts.
+- Line 1 of the yEnc block is the first line of the article body; in an
+  ARTICLE response it follows the blank line that ends the headers. It
+  is never found by trial decryption.
 - Combined mode: the Line 1 salt and segmentIndex MUST equal the
   =yencryption values defined by the body standard.
 - NZB metadata, password sources, error tiers, the zero-output rule,
@@ -196,8 +201,10 @@ to locate boundaries.
 Combined Mode Header Placement Rules:
 When control line encryption is combined with body encryption:
 - An article is multipart when its restored =ybegin line carries a part=
-  keyword (yEnc 1.3), whatever its total= value; otherwise it is
-  single-part.
+  keyword (yEnc 1.3) among the keywords before name=, whatever its
+  total= value; otherwise it is single-part. The name= keyword is last
+  and its value runs to the end of the line, so text inside the name
+  (for example "name=my part=2.bin") never makes an article multipart.
 - Single-part articles require =yencryption at physical line 2 immediately
   after =ybegin.
 - Multipart articles require =ypart at physical line 2 and =yencryption
@@ -340,7 +347,7 @@ Decryption Steps:
 4. Determine the header layout deterministically from the restored
    Line 1 (=ybegin) content, before touching any other line. The
    article is multipart when the restored =ybegin line carries a
-   part= keyword, and single-part otherwise. Header positions are
+   part= keyword before name=, and single-part otherwise. Header positions are
    inferred from that structure; a data line is never decrypted to
    discover them (normative; see also step 5).
    a. In combined mode (control line encryption with body encryption,
@@ -383,10 +390,9 @@ Decryption Steps:
       MAY decrypt the positions its own mode layout predicts; any
       such handling is local to that receiver and outside this
       standard's v1.2 interoperability contract. A combined-only
-      receiver that receives such an article classifies it under the
-      error tiers (fetched unexpected mode: PROVIDER_FAILOVER; mode
-      determinable from NZB metadata before fetch:
-      METADATA_VALIDATION).
+      receiver that receives such an article classifies it as
+      PROVIDER_FAILOVER: the NZB carries no mode metadata, so the mode
+      is only discovered in the fetched bytes.
 5. Pass through data lines (lineIndex = D through N - 1):
    - Leave all data lines untouched, incrementing lineIndex for each 1-based
      physical line.
@@ -414,10 +420,7 @@ An implementation MUST classify a failure by the input that failed
 validation, exactly once, identically to the body standard (Body
 Standard Section 5). The structural tier (METADATA_VALIDATION) applies
 to NZB metadata and local configuration validated before an article
-fetch, including a locally unsupported mode (a body-only or
-control-only article where the receiver supports only combined mode,
-when that is determinable from NZB metadata before fetch) and locally
-unsupported KDF parameters. The provider-corruption tier
+fetch, including locally unsupported KDF parameters. The provider-corruption tier
 (PROVIDER_FAILOVER) applies to bytes in a fetched article after those
 structural inputs have passed validation. A restored control line
 that fails syntax, placement, or cross-header checks is therefore
@@ -542,7 +545,9 @@ Encrypted NZBs MUST include in the <head> element:
 This tag indicates that articles are encrypted with yEnc transport
 encryption. Downloaders use this marker to dispatch articles to the
 transport decryption pipeline. If this tag is missing, downloaders treat
-the NZB as standard unencrypted yEnc for backward compatibility.
+the NZB as standard unencrypted yEnc for backward compatibility. So does
+any value other than "true", which matches ASCII case-insensitively after
+trimming surrounding whitespace.
 
 Password Metadata:
 The NZB carries the transport password in:
@@ -559,14 +564,16 @@ Every <segment> element under <segments> within <file> uses standard NZB 1.1
 attributes only:
   <segment bytes="750000" number="1">article-1@example.com</segment>
 Segment identity is carried only in the article bootstrap bytes; the NZB
-carries no encryption-specific segment data.
+carries no encryption-specific segment data and no mode metadata. The
+bytes attribute is not a cryptographic input (Body Standard Section 2.1).
 
 Producer Requirements:
 For an encrypted upload, the NZB writer MUST:
 1. Emit <meta type="yenc_encrypted">true</meta> in the <head> section.
 2. Emit <meta type="password">...</meta> with the transport password,
    unless the password is distributed another way.
-3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only.
+3. Emit standard NZB 1.1 <segment> elements with bytes and number
+   attributes only, where bytes is the plaintext segment length.
 4. Embed the 1-based segmentIndex into the article bootstrap (Line 1 prefix
    and =yencryption index parameter).
 5. Ensure each encrypted article has a unique segmentIndex within the upload session.
@@ -590,12 +597,15 @@ An encryption-aware NZB reader MUST:
    body nonce derivation.
 
 Forward-Compatibility Metadata Gating:
-NZBs produced by newer tooling MAY carry <meta type="yenc_version"> and
-<meta type="yenc_cipher"> entries. Clients that do not consume yEnc
-transport encryption MAY ignore these entries. Clients that DO consume
-them MUST treat unsupported yenc_version or yenc_cipher values as a
+NZBs MAY carry <meta type="yenc_version">1.2</meta> and
+<meta type="yenc_cipher">XChaCha20-Poly1305</meta>. Values and matching
+rules are those of Body Standard Section 8: after trimming surrounding
+whitespace, yenc_version equals "1.2" exactly and yenc_cipher equals
+"XChaCha20-Poly1305" ASCII case-insensitively. Clients that consume
+yEnc transport encryption MUST treat any other value as a
 METADATA_VALIDATION structural failure (fail closed); silent fallback to
-ordinary yEnc decoding risks writing ciphertext as content.
+ordinary yEnc decoding risks writing ciphertext as content. Readers MUST
+NOT gate on undefined metadata such as a mode marker.
 
 Decoupling of Presentation Metadata:
 - <file subject> has no cryptographic meaning.
@@ -620,6 +630,11 @@ Decoupling of Presentation Metadata:
   RFC 3977 Section 3.1.1; consumers MUST dot-unstuff before line splitting
   and index counting. The <segment bytes> and size= parameters report
   dot-unstuffed content length, not wire length.
+- Article body boundary: Line 1 (lineIndex=1) is the first line of the
+  article body: the first response line for BODY (222), or the line
+  after the first empty line ending the headers for ARTICLE (220),
+  as in Body Standard Section 9. Decoders MUST NOT locate it by trial
+  decryption of header lines.
 - Article-Bounded Memory: An implementation MAY buffer one complete article
   while restoring control lines and authenticating an encrypted body. It MUST
   keep working memory proportional to the configured maximum article size,

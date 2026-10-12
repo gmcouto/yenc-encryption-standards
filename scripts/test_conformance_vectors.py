@@ -43,6 +43,7 @@ import nacl.exceptions as ne
 from yenc_enc_reference import (
     build_aad,
     body_decrypt,
+    combined_mode_layout,
     derive_body_nonce,
     derive_control_keys,
     derive_key,
@@ -504,6 +505,10 @@ class TestConformanceVectors(unittest.TestCase):
                         restored = ff1_decrypt(enc_key, tweak, wire)
                     self.assertEqual(restored, plaintext)
                 else:
+                    if "expected_multipart" in case:
+                        layout = combined_mode_layout(case["input_lines"][0])
+                        self.assertEqual(layout["multipart"], case["expected_multipart"])
+                        self.assertEqual(layout["first_data_line"], case["expected_first_data_line"])
                     for line_index, (line, wire_hex) in enumerate(zip(case["input_lines"], case["expected_wire_lines_hex"]), start=1):
                         wire = bytes.fromhex(wire_hex)
                         if line.startswith("=y"):
