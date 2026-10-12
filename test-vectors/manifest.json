@@ -23,7 +23,7 @@
       "requirement": "VEC-03"
     },
     "control_line_encryption.json": {
-      "sha256": "9d477b5de98c890ee2677c22c52e22069f06cdb978559cd601a45b3e6723ce1d",
+      "sha256": "56916b3565a7edafc7742b7d1190a5455f9648b5483b272942fba47cccdfadc9",
       "vector_count": 12,
       "description": "NIST SP 800-38G FF1 control-line encryption round-trip vectors (VEC-04)",
       "requirement": "VEC-04"

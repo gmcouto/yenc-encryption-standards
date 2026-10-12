@@ -754,6 +754,7 @@ def generate_control_line_vectors(path: Path):
     # 4-line minimal article: =ybegin (line 1), data line 1 (line 2), data line 2 (line 3), =yend (line 4)
     art4_lines = [
         "=ybegin line=128 size=18 name=file.bin",
+        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "DataLine1TestDataMustRemainUntouched1234567890",
         "DataLine2TestDataMustRemainUntouched1234567890",
         "=yend size=18",
@@ -774,11 +775,11 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-07-full-article-4-lines",
-            "description": "Full 4-line article: line 1 bootstrap expansion, lines 2-3 data lines untouched, line 4 exact length",
+            "description": "Full single-part combined-mode article: =ybegin, =yencryption header (line 2), two data lines untouched, =yend (line 5); line 1 bootstrap expansion",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
-            "total_physical_lines": 4,
+            "total_physical_lines": 5,
             "input_lines": art4_lines,
             "expected_wire_lines_hex": art4_wire,
         }
@@ -789,6 +790,7 @@ def generate_control_line_vectors(path: Path):
     # line must pass through untouched and never be trial-decrypted.
     art4_one_byte_lines = [
         "=ybegin line=4 size=1 name=one.bin",
+        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "F",  # exactly one data byte
         "=yend size=1",
     ]
@@ -811,7 +813,7 @@ def generate_control_line_vectors(path: Path):
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
-            "total_physical_lines": 3,
+            "total_physical_lines": 4,
             "input_lines": art4_one_byte_lines,
             "expected_wire_lines_hex": art4_one_byte_wire,
         }
@@ -822,6 +824,7 @@ def generate_control_line_vectors(path: Path):
     # position-based restoration decodes this article deterministically.
     art_exact_wrap_lines = [
         "=ybegin line=12 size=36 name=wrap.bin",
+        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "0123456789ab",
         "cdef01234567",
         "89abcd123456",
@@ -842,11 +845,11 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-10-exact-wrap-data-lines",
-            "description": "STD-2 exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched",
+            "description": "STD-2 exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched, after a valid =yencryption header at line 2",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
-            "total_physical_lines": 5,
+            "total_physical_lines": 6,
             "input_lines": art_exact_wrap_lines,
             "expected_wire_lines_hex": art_exact_wrap_wire,
         }

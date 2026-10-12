@@ -103,22 +103,24 @@
     },
     {
       "id": "control-vec-07-full-article-4-lines",
-      "description": "Full 4-line article: line 1 bootstrap expansion, lines 2-3 data lines untouched, line 4 exact length",
+      "description": "Full single-part combined-mode article: =ybegin, =yencryption header (line 2), two data lines untouched, =yend (line 5); line 1 bootstrap expansion",
       "password": "test123",
       "salt_hex": "4b376d5839704c32715238764e34775a",
       "segment_index": 1,
-      "total_physical_lines": 4,
+      "total_physical_lines": 5,
       "input_lines": [
         "=ybegin line=128 size=18 name=file.bin",
+        "=yencryption cipher=XChaCha20-Poly1305 salt=4b376d5839704c32715238764e34775a index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "DataLine1TestDataMustRemainUntouched1234567890",
         "DataLine2TestDataMustRemainUntouched1234567890",
         "=yend size=18"
       ],
       "expected_wire_lines_hex": [
         "4b376d5839704c32715238764e34775a000000013ff69054da2b2309591e740e5b9fd79015f610d42f01bd203e5f55dadc39fc760407e845201f",
+        "7ebf87254605c04dbe246fe4612f24ebee403e936acac9f0f46cba27eaf69a2055379de0472aa95ddaffe52c76e466da60b550474a51b19b2f8666909f6f8b46ddf1e2196d65aee9974e3d8f05fb8aeaf6e723f291a1714015d7f8fd5d0160f55cced913336080c4f1d10209a09b50515f890b31bf3323c7d741f5426b3c3a80",
         "446174614c696e653154657374446174614d75737452656d61696e556e746f756368656431323334353637383930",
         "446174614c696e653254657374446174614d75737452656d61696e556e746f756368656431323334353637383930",
-        "c1e630d858d271da6accc0b0dd"
+        "f13250016df316d5d740ec658a"
       ]
     },
     {
@@ -127,27 +129,30 @@
       "password": "test123",
       "salt_hex": "4b376d5839704c32715238764e34775a",
       "segment_index": 1,
-      "total_physical_lines": 3,
+      "total_physical_lines": 4,
       "input_lines": [
         "=ybegin line=4 size=1 name=one.bin",
+        "=yencryption cipher=XChaCha20-Poly1305 salt=4b376d5839704c32715238764e34775a index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "F",
         "=yend size=1"
       ],
       "expected_wire_lines_hex": [
         "4b376d5839704c32715238764e34775a000000018c33f388f53c64b4431258341acd372b6e254cdd609ceebfc6ec5552598f953c4195",
+        "7ebf87254605c04dbe246fe4612f24ebee403e936acac9f0f46cba27eaf69a2055379de0472aa95ddaffe52c76e466da60b550474a51b19b2f8666909f6f8b46ddf1e2196d65aee9974e3d8f05fb8aeaf6e723f291a1714015d7f8fd5d0160f55cced913336080c4f1d10209a09b50515f890b31bf3323c7d741f5426b3c3a80",
         "46",
-        "c49535f2aa7e6c8037783b8d"
+        "afcfbdaf28f29d1fbb170e16"
       ]
     },
     {
       "id": "control-vec-10-exact-wrap-data-lines",
-      "description": "STD-2 exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched",
+      "description": "STD-2 exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched, after a valid =yencryption header at line 2",
       "password": "test123",
       "salt_hex": "4b376d5839704c32715238764e34775a",
       "segment_index": 1,
-      "total_physical_lines": 5,
+      "total_physical_lines": 6,
       "input_lines": [
         "=ybegin line=12 size=36 name=wrap.bin",
+        "=yencryption cipher=XChaCha20-Poly1305 salt=4b376d5839704c32715238764e34775a index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "0123456789ab",
         "cdef01234567",
         "89abcd123456",
@@ -155,10 +160,11 @@
       ],
       "expected_wire_lines_hex": [
         "4b376d5839704c32715238764e34775a000000019fb9ba8037d480b3ed706575019004e014cf3939546cbe69117623678e04544583ed6385eb",
+        "7ebf87254605c04dbe246fe4612f24ebee403e936acac9f0f46cba27eaf69a2055379de0472aa95ddaffe52c76e466da60b550474a51b19b2f8666909f6f8b46ddf1e2196d65aee9974e3d8f05fb8aeaf6e723f291a1714015d7f8fd5d0160f55cced913336080c4f1d10209a09b50515f890b31bf3323c7d741f5426b3c3a80",
         "303132333435363738396162",
         "636465663031323334353637",
         "383961626364313233343536",
-        "e0f466f87ae7de380b6cc73669"
+        "a31b42696f3fa9d5317ba2f216"
       ]
     },
     {
