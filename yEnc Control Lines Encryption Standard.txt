@@ -18,6 +18,23 @@ required for Usenet transmission.
 Change Log:
 
 Version 1.2 (2026-10-10):
+- Combined-mode decoding is deterministic: header positions are
+  inferred from the restored structure, never discovered by trial
+  decryption of data lines. Data lines are passed through untouched
+  and are never decrypted (Section 5). The normative procedure does
+  not prescribe decrypting a data line to find the header/data
+  boundary.
+- AEAD associated data: in combined mode the body standard's
+  associated data (Body Standard Section 2.1) binds each segment to
+  its assembly position and =ybegin name; control-line restoration
+  supplies those values. The control-line FF1 layer itself carries no
+  associated data beyond its tweak.
+- Exact KDF inputs shared with the body standard: UTF-8 password
+  encoding with no Unicode normalization, Argon2id version 0x13
+  (v=19), time=1, memory=65536 KiB, parallelism=4, 32-byte output,
+  empty optional secret and associated data (Section 4). Passwords
+  must be XML-representable when carried by NZB metadata and parsers
+  must not silently alter the KDF password.
 - Line 1 starts with a 20-byte article bootstrap: 16 salt bytes from the
   Alphabet followed by uint32_be(segmentIndex). Line 1 grows by exactly
   20 bytes, lines 2..N keep their length, and data lines are untouched.
@@ -31,8 +48,9 @@ Version 1.2 (2026-10-10):
   uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8] over an exact
   26-byte message. The Alphabet has a fixed byte-to-numeral mapping and
   salt bytes are sampled uniformly from it.
-- Decoding restores Line 1, then header lines up to the first data line,
-  then the =yend footer. Line terminators are kept byte for byte.
+- Decoding restores Line 1, then the fixed header positions inferred
+  from the restored structure, then the =yend footer identified by
+  position. Line terminators are kept byte for byte.
 - An article is multipart when its =ybegin line carries a part= keyword,
   even if total=1; multipart articles carry =ypart at line 2.
 - Combined mode: the Line 1 salt and segmentIndex MUST equal the
@@ -169,6 +187,12 @@ yEnc Structure Pattern:
 - Data lines: encoded binary data (multiple lines)
 - Footer line: "=yend ..."
 
+The control-line and data-line roles of every physical line are a
+function of position in this structure, not of line content. The
+decryption procedure (Section 5) infers the layout from the restored
+=ybegin line and fixed positions; it never inspects data-line bytes
+to locate boundaries.
+
 Combined Mode Header Placement Rules:
 When control line encryption is combined with body encryption:
 - An article is multipart when its restored =ybegin line carries a part=
@@ -215,7 +239,28 @@ Parameters:
     rejection sampling, which re-draws any forbidden value, remains
     uniform and is permitted.
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
-    threads=4, 256-bit output)
+    threads=4, 256-bit output). The exact KDF inputs are fixed and
+    identical to the body standard's (Body Standard Section 4):
+      * Password encoding: UTF-8, exactly as the source text, with
+        NO Unicode normalization applied (no NFC, NFD, NFKC, NFKD).
+      * Argon2id version: 0x13 (decimal 19, RFC 9106 v=19).
+      * time cost (iterations/t): 1.
+      * memory cost (m): 65536 KiB (64 MiB).
+      * parallelism (p/lanes): 4.
+      * Tag length: 32 bytes (256 bits).
+      * Optional secret (K) input: empty (zero-length).
+      * Optional associated data (X) input: empty (zero-length).
+    Any other KDF parameter set MUST be rejected as a locally
+    unsupported cryptographic configuration (structural tier).
+  - XML representability of passwords: as in the body standard
+    (Body Standard Section 4). The transport password carried by
+    <meta type="password"> MUST parse back to exactly the sequence
+    of Unicode code points that is UTF-8 encoded into the KDF.
+    Parsers MUST NOT silently alter the KDF password (no stripping,
+    trimming, case folding, normalization, or character dropping).
+    Producers MUST refuse XML-unrepresentable passwords on the NZB
+    route before posting; consumers MUST treat a password that fails
+    XML parsing as METADATA_VALIDATION.
   - Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" ||
     uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
     where segmentIndex is the unsigned 32-bit integer in range 1..=4294967295
@@ -231,8 +276,10 @@ Procedure (applied to each yEnc control line individually):
       253 Alphabet bytes (once per upload session, use cryptographically
       secure RNG; use rejection sampling, drawing again on any byte
       outside Alphabet).
-  b. Derive masterKey = Argon2id(password, salt, time=1, memory=64MB,
-     threads=4, 256-bit output).
+  b. Derive masterKey = Argon2id(password encoded to UTF-8 with no
+     normalization, salt, time=1, memory=65536 KiB, parallelism=4,
+     32-byte output, version 0x13, empty optional secret and
+     associated data; exact inputs per this Section).
   c. Derive encKey = HMAC-SHA256(masterKey, "yenc-control key").
      The message input to HMAC-SHA256 is exactly 16 bytes: the ASCII
      prefix "yenc-control key". The encKey is the full 32-byte digest,
@@ -290,46 +337,56 @@ Decryption Steps:
    g. Verify decrypted content starts with "=ybegin". If it does not,
       classify error per two-tier error rules.
    h. Replace line 1 encrypted content with decrypted content.
-4. Process subsequent header lines (lineIndex = 2, 3, ...):
-   a. For each physical line before data lines (lineIndex=2, 3, ...),
-      stop the loop at lineIndex = N - 1 at the latest. The footer line
-      (lineIndex = N) is always handled by step 6 and MUST NOT be
-      decrypted by this loop. If the loop reaches its last permitted line
-      (lineIndex = N - 1) without finding a data line, the block has no
-      data lines; the loop ends and step 6 processes the footer.
-      - Extract line content (excluding line terminators).
-      - Derive tweak using extracted salt, extracted segmentIndex, and
-        current lineIndex.
-      - Apply FF1 decryption over the 253-character Alphabet. Only a
-        decryption SUCCESS whose plaintext does not begin with "=y"
-        terminates the header loop (this line is the first data line).
-        An FF1 decryption error on a line in the header region is
-        PROVIDER_FAILOVER, never data-line passthrough.
-      - If decrypted content starts with "=y":
-        * If decrypted line starts with "=yencryption":
-          - Validate the canonical five-token grammar from the body standard:
-            =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
-          - Assert dual-bootstrap agreement: decoded header salt MUST match
-            Line 1 raw salt byte-for-byte, AND decoded header index MUST match
-            Line 1 segmentIndex value-for-value.
-          - Verify line placement (line 2 for single-part, line 3 for
-            multipart). Placement is checked against the physical position
-            of the line, before or after decryption, because FF1 preserves
-            line length and position; the check is on position, not content,
-            so both orders agree.
-          - If unequal, fail closed immediately with PROVIDER_FAILOVER.
-        * Replace line content with decrypted content.
-        * Continue to next line (increment lineIndex by 1).
-      - If decrypted content does not start with "=y":
-        * This line is the first data line (lineIndex = D).
-        * Restore original line content untouched.
-        * Stop header decryption loop.
-   b. Any other outcome of the header loop is provider corruption and MUST
-      be classified as PROVIDER_FAILOVER: a restored header line other than
-      Line 1 or Line N that does not begin with "=y" (where a header was
-      expected before the first data line), or a line decrypted where a data
-      line was expected that does begin with "=y" and disagrees with the
-      header/data boundary. These cases are not structural failures.
+4. Determine the header layout deterministically from the restored
+   Line 1 (=ybegin) content, before touching any other line. The
+   article is multipart when the restored =ybegin line carries a
+   part= keyword, and single-part otherwise. Header positions are
+   inferred from that structure; a data line is never decrypted to
+   discover them (normative; see also step 5).
+   a. In combined mode (control line encryption with body encryption,
+      the only production mode of v1.2) the encrypted control lines
+      occupy fixed positions:
+      - Single-part: line 1 is =ybegin, line 2 is =yencryption. The
+        first data line is lineIndex D = 3.
+      - Multipart: line 1 is =ybegin, line 2 is =ypart, line 3 is
+        =yencryption. D = 4.
+   b. Decrypt the =ypart line (multipart, lineIndex=2) with the tweak
+      for its lineIndex, and decrypt the =yencryption line (line 2
+      single-part, line 3 multipart) with the tweak for its lineIndex.
+      For the restored =yencryption line, validate the canonical
+      five-token grammar from the body standard and assert
+      dual-bootstrap agreement: decoded header salt MUST match Line 1
+      raw salt byte-for-byte AND decoded header index MUST match
+      Line 1 segmentIndex value-for-value. An FF1 decryption error, a
+      grammar violation, a placement disagreement (a control line
+      decrypted at a position the deterministic layout does not
+      predict, or no control line where one is required), or a
+      dual-bootstrap mismatch is PROVIDER_FAILOVER.
+   c. Every physical line between the last expected header position
+      and the footer position N (that is, lineIndex D through N - 1)
+      is a data line: it MUST be passed through completely untouched,
+      byte for byte, including its line terminator. Data lines are
+      NEVER decrypted, never trial-decrypted, and never inspected to
+      locate the header/footer boundary. A data line whose bytes
+      happen to begin with "=y" remains a data line; the yEnc rule
+      that genuine control lines are recognizable by position makes
+      content-based detection unnecessary and forbidden here.
+   d. The footer is identified deterministically by position:
+      the last physical line of the yEnc block (lineIndex = N) is the
+      =yend footer. No content-based footer search is performed.
+   e. Out of scope for v1.2: control-only articles (control line
+      encryption without body encryption), articles with custom
+      control lines other than =ybegin, =ypart, =yencryption, and
+      =yend, and header layouts not fixed by the restored =ybegin
+      line. A producer MUST NOT emit such articles in v1.2. A
+      receiver MAY implement additional modes, and for those modes it
+      MAY decrypt the positions its own mode layout predicts; any
+      such handling is local to that receiver and outside this
+      standard's v1.2 interoperability contract. A combined-only
+      receiver that receives such an article classifies it under the
+      error tiers (fetched unexpected mode: PROVIDER_FAILOVER; mode
+      determinable from NZB metadata before fetch:
+      METADATA_VALIDATION).
 5. Pass through data lines (lineIndex = D through N - 1):
    - Leave all data lines untouched, incrementing lineIndex for each 1-based
      physical line.
@@ -337,7 +394,8 @@ Decryption Steps:
    a. Extract the last physical line content (excluding line terminators).
    b. Derive tweak using extracted salt, extracted segmentIndex, and lineIndex = N.
    c. Apply FF1 decryption over the 253-character Alphabet.
-   d. Verify decrypted content starts with "=yend".
+   d. Verify decrypted content starts with "=yend". Any other result,
+      including an FF1 decryption error, is PROVIDER_FAILOVER.
    e. Replace line N encrypted content with decrypted content.
 7. If body encryption is active, proceed to body decryption, wire CRC
    validation over ciphertext, Poly1305 authentication, and downstream
@@ -352,20 +410,36 @@ structural tier as METADATA_VALIDATION in error surfaces; these identifiers
 name the two tiers defined below and are used consistently with the
 README and with the body standard.
 
-An implementation MUST classify a failure by the input that failed validation.
-The structural tier applies to NZB metadata and configuration obtained before
-an article fetch. The provider-corruption tier applies to bytes in a fetched
-article after those structural inputs have passed validation. A restored
-control line that fails syntax, placement, or cross-header checks is therefore
-provider corruption. This rule prevents the same article defect from being
-classified in both tiers.
+An implementation MUST classify a failure by the input that failed
+validation, exactly once, identically to the body standard (Body
+Standard Section 5). The structural tier (METADATA_VALIDATION) applies
+to NZB metadata and local configuration validated before an article
+fetch, including a locally unsupported mode (a body-only or
+control-only article where the receiver supports only combined mode,
+when that is determinable from NZB metadata before fetch) and locally
+unsupported KDF parameters. The provider-corruption tier
+(PROVIDER_FAILOVER) applies to bytes in a fetched article after those
+structural inputs have passed validation. A restored control line
+that fails syntax, placement, or cross-header checks is therefore
+provider corruption, as is a fetched article in an unexpected mode
+discovered only in its bytes. This rule prevents the same defect from
+being classified in both tiers.
+
+Effective password source: as in the body standard (Body Standard
+Section 5). <meta type="password"> in the NZB is the interoperable
+default; clients MAY override it from their own sources resolved
+before fetch; a missing password after resolution is structural;
+the effective password feeds the KDF unaltered.
 
 1. Non-Retriable Structural Failures:
    - Missing NZB provenance when transport decryption was requested.
-   - Malformed NZB XML.
+   - Malformed NZB XML, including a transport password that fails XML
+     parsing (no repaired or altered substitute value is permitted).
    - No transport password available (none in the NZB and none supplied
      to the client).
-   - Locally unsupported encryption mode or cryptographic dependency.
+   - A locally unsupported encryption mode or cryptographic dependency,
+     including an unsupported NZB yenc_version or yenc_cipher value
+     (Section 8) and any Argon2id parameter set other than Section 4.
    Action: Abort the job without querying alternate Usenet servers.
    Output: Zero bytes of plaintext and zero bytes of ciphertext.
 
@@ -381,15 +455,15 @@ classified in both tiers.
    - An index containing forbidden delimiter bytes (0x0A or 0x0D) in the
      4-byte uint32_be(segmentIndex) bootstrap field.
    - Missing, malformed, misplaced, or duplicate yEnc control lines in the
-     fetched article, including =ypart and =yencryption.
+     fetched article at the deterministic positions, including =ypart
+     and =yencryption.
    - An =yencryption line that violates the canonical five-token grammar or
      contains an unsupported cipher token other than XChaCha20-Poly1305.
    - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
+   - A fetched article in an unexpected mode (for example body-only or
+     control-only framing fetched by a combined-only receiver).
    - Wire CRC mismatch, Poly1305 authentication failure, truncation, or other
-      article-body corruption.
-   - A restored header line other than Line 1 or Line N that does not begin
-     with "=y" where a header was expected, or a header/data boundary
-     disagreement produced by the header loop (step 4b).
+     article-body corruption.
    Action: Mark the article corrupt and try an eligible alternate provider.
    After all eligible providers fail, mark the segment failed so normal repair
    policy can run.
@@ -441,8 +515,18 @@ completes and MUST discard them on failure.
 - Tampering with segmentIndex produces an incorrect tweak, causing
   FF1 to output arbitrary bytes that do not begin with "=ybegin"
   on line 1, failing restoration.
+- Restoration is deterministic and position-based: data lines are
+  never decrypted, so a modified data line cannot probe the FF1
+  keystream or leak decryption success/failure oracles. The FF1
+  layer carries no content authentication; in combined mode the
+  body standard's associated data (Body Standard Section 2.1)
+  provides position binding, and in a control-only use the restored
+  control lines have no cryptographic integrity guarantee.
 - Subject lines, filenames, XML element order, and NNTP header order have
   no cryptographic role, enabling full subject and metadata obfuscation.
+- The KDF password is used exactly as delivered (UTF-8, no
+  normalization); implementations that alter it before derivation
+  break interoperability.
 - All failure paths enforce zero output, preventing chosen-ciphertext
   or partial-plaintext leakage.
 
@@ -603,13 +687,21 @@ Decryption Processing:
   * Extract next 4 bytes as uint32_be segmentIndex (value=1).
   * Decrypt remaining 36 bytes with lineIndex=1, segmentIndex=1, and extracted salt.
   * Result: "=ybegin line=9 size=18 name=file.bin" -> valid header, keep.
+- The restored =ybegin line carries no part= keyword, so the article is
+  single-part: the deterministic layout (Section 5 step 4) fixes the
+  header region as lines 1..2 for combined mode and the first data
+  line as lineIndex D = 3. This block is control-only, so the example
+  illustrates position bookkeeping only; see the v1.2 scope note in
+  Section 5 step 4e.
 - Line 2 (lineIndex=2):
-  * Attempt decrypt with lineIndex=2.
-  * Result does not begin with "=y", indicating first data line.
-  * Retain original "abcDEF123" untouched.
+  * In combined mode this position would carry the =yencryption
+    header, decrypted with lineIndex=2. This control-only example
+    leaves line 2 as an untouched data line.
 - Line 3 (lineIndex=3):
-  * Data line -> retain original "ghiJKL456" untouched.
+  * Data line -> retain original "ghiJKL456" untouched (data lines
+    are never decrypted).
 - Line 4 (lineIndex=4=N):
+  * The footer is identified by position (the last physical line).
   * Decrypt last physical line (lineIndex=4) with lineIndex=4, segmentIndex=1, and extracted salt.
   * Result: "=yend size=18" -> valid footer.
 
@@ -626,6 +718,8 @@ This Standard describes deterministic format-preserving encryption
 encrypted messages that:
   - Keep all data lines completely unchanged.
   - Encrypt only yEnc header and footer information (lines starting with "=y").
+  - Restore control lines deterministically by position, never by
+    trial-decrypting data lines (Section 5).
   - Prepend 20-byte article bootstrap prefix on Line 1 (16B salt + 4B segmentIndex)
     while preserving exact length on lines 2..N.
   - Maintain dual-bootstrap agreement when combined with body encryption.

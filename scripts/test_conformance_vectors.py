@@ -2,11 +2,18 @@
 """Automated conformance test harness for yEnc encryption standards v1.2.
 
 Tests conformance against:
-- VEC-01: Argon2id key derivation fixtures (argon2id.json)
+- VEC-01: Argon2id key derivation fixtures (argon2id.json), including the
+  no-normalization password policy
 - VEC-02: HMAC-SHA256 nonce and tweak derivations (nonce_tweak.json)
-- VEC-03: XChaCha20-Poly1305 body encryption round-trips (body_encryption.json)
-- VEC-04: NIST SP 800-38G FF1 control-line encryption round-trips (control_line_encryption.json)
+- VEC-03: XChaCha20-Poly1305 body encryption round-trips with Section 2.1
+  associated data (body_encryption.json)
+- VEC-04: NIST SP 800-38G FF1 control-line encryption round-trips and
+  deterministic combined-mode restoration fixtures (control_line_encryption.json)
 - VEC-05: Malformed-input rejection and zero-output security (malformed_inputs.json)
+- VEC-06: NZB 1.1 identity parsing, tampered-index/metadata-mutation
+  authentication enforcement, and zero-output obligations
+  (nzb_segment_identity.json)
+- VEC-07: Uploader segmentIndex allocation skip vectors (index_allocation.json)
 - Manifest SHA-256 integrity verification (manifest.json)
 """
 
@@ -31,6 +38,16 @@ import argon2.low_level as ll
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import nacl.bindings as nb
 import nacl.exceptions as ne
+
+# The canonical reference primitives shared with the vector generator.
+from yenc_enc_reference import (
+    build_aad,
+    body_decrypt,
+    derive_body_nonce,
+    derive_control_keys,
+    derive_key,
+    uint32_be,
+)
 
 # ---------------------------------------------------------------------------
 # Embedded cryptographic verification primitives.
@@ -108,18 +125,18 @@ def validate_dual_bootstrap(line1_salt: bytes, line1_index: int, yenc_params: di
     return True
 
 
-def body_encrypt(plaintext: bytes, key: bytes, nonce: bytes) -> tuple[bytes, bytes]:
-    """Encrypt payload using XChaCha20-Poly1305 producing ciphertext and 16B tag."""
-    ct_and_tag = nb.crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, None, nonce, key)
+def body_encrypt(plaintext: bytes, key: bytes, nonce: bytes, aad: bytes) -> tuple[bytes, bytes]:
+    """Encrypt payload using XChaCha20-Poly1305 with Section 2.1 AAD."""
+    ct_and_tag = nb.crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, aad, nonce, key)
     ciphertext = ct_and_tag[:-16]
     tag = ct_and_tag[-16:]
     return ciphertext, tag
 
 
-def body_decrypt(ciphertext: bytes, tag: bytes, key: bytes, nonce: bytes) -> bytes:
-    """Authenticate and decrypt payload; returns plaintext or raises error."""
+def body_decrypt(ciphertext: bytes, tag: bytes, key: bytes, nonce: bytes, aad: bytes) -> bytes:
+    """Authenticate and decrypt payload with Section 2.1 AAD; raises on failure."""
     ct_and_tag = ciphertext + tag
-    return nb.crypto_aead_xchacha20poly1305_ietf_decrypt(ct_and_tag, None, nonce, key)
+    return nb.crypto_aead_xchacha20poly1305_ietf_decrypt(ct_and_tag, aad, nonce, key)
 
 
 def byte_to_numeral(b: int) -> int:
@@ -372,7 +389,8 @@ class TestConformanceVectors(unittest.TestCase):
         self.assertTrue(expected_errors <= observed)
 
     def test_vec01_argon2id(self):
-        """Verify VEC-01 Argon2id key derivation outputs."""
+        """Verify VEC-01 Argon2id key derivation outputs, including the
+        no-normalization policy vectors."""
         params = self.argon2id_data["parameters"]
         for case in self.argon2id_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
@@ -387,6 +405,23 @@ class TestConformanceVectors(unittest.TestCase):
                     version=int(params.get("version", "0x13"), 16),
                 )
                 self.assertEqual(derived.hex(), case["expected_key_hex"])
+                if "no_normalization_distinct_passwords" in case:
+                    # Every NFC-equivalent spelling listed must derive a
+                    # DIFFERENT key: the v1.2 KDF applies no normalization.
+                    keys = {
+                        ll.hash_secret_raw(
+                            secret=variant.encode("utf-8"),
+                            salt=bytes.fromhex(case["salt_hex"]),
+                            time_cost=params.get("time_cost", 1),
+                            memory_cost=params.get("memory_cost_kib", 65536),
+                            parallelism=params.get("parallelism", 4),
+                            hash_len=params.get("output_length_bytes", 32),
+                            type=ll.Type.ID,
+                            version=int(params.get("version", "0x13"), 16),
+                        ).hex()
+                        for variant in case["no_normalization_distinct_passwords"]
+                    }
+                    self.assertEqual(len(keys), len(case["no_normalization_distinct_passwords"]))
 
     def test_vec02_nonce_tweak(self):
         """Verify VEC-02 nonce and tweak derivations."""
@@ -404,14 +439,27 @@ class TestConformanceVectors(unittest.TestCase):
             self.assertEqual(tweak.hex(), case["expected_tweak_hex"])
 
     def test_vec03_body_encryption(self):
-        """Verify VEC-03 body round-trips and canonical five-token headers."""
+        """Verify VEC-03 body round-trips, canonical five-token headers, and
+        the Section 2.1 AAD serialization."""
         for case in self.body_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
                 salt = bytes.fromhex(case["salt_hex"])
                 key = derive_key(case["password"], salt)
                 nonce = derive_body_nonce(key, case["segment_index"])
                 plaintext = bytes.fromhex(case["plaintext_hex"])
-                ciphertext, tag = body_encrypt(plaintext, key, nonce)
+                aad_meta = case["aad"]
+                aad = build_aad(
+                    bytes.fromhex(aad_meta["name_bytes_hex"]),
+                    aad_meta["part_number"],
+                    aad_meta["part_begin"],
+                    aad_meta["segment_bytes"],
+                )
+                # The fixture's AAD serialization must equal the reference
+                # construction byte for byte (Body Std Section 2.1).
+                self.assertEqual(aad.hex(), aad_meta["expected_aad_hex"])
+                self.assertTrue(aad.startswith(b"yenc-body aad"))
+                self.assertGreater(len(aad), 33)
+                ciphertext, tag = body_encrypt(plaintext, key, nonce, aad)
                 self.assertEqual(ciphertext.hex(), case["expected_ciphertext_hex"])
                 self.assertEqual(tag.hex(), case["expected_tag_hex"])
                 params = parse_yencryption_line_v11(case["expected_yencryption_line"])
@@ -420,7 +468,11 @@ class TestConformanceVectors(unittest.TestCase):
                 self.assertEqual(params["salt"], salt)
                 self.assertEqual(params["segment_index"], case["segment_index"])
                 self.assertEqual(params["tag"], tag)
-                self.assertEqual(body_decrypt(ciphertext, tag, key, nonce), plaintext)
+                self.assertEqual(body_decrypt(ciphertext, tag, key, nonce, aad), plaintext)
+                # The same ciphertext with the empty AAD must fail: the
+                # tag is AAD-bound (STD-1 Option A).
+                with self.assertRaises(ne.CryptoError):
+                    body_decrypt(ciphertext, tag, key, nonce, b"")
 
     def test_vec04_control_line_encryption(self):
         """Verify VEC-04 FF1 control-line encryption and 20-byte Line 1 bootstrap."""
@@ -516,10 +568,11 @@ class TestConformanceVectors(unittest.TestCase):
                     nonce = derive_body_nonce(key, case["segment_index"])
                     ciphertext = bytes.fromhex(case.get("tampered_ciphertext_hex") or case["ciphertext_hex"])
                     tag = bytes.fromhex(case.get("tampered_tag_hex") or case["tag_hex"])
+                    aad = bytes.fromhex(case.get("aad_hex") or "")
                     output = None
                     with self.assertRaises(ne.CryptoError):
                         try:
-                            output = body_decrypt(ciphertext, tag, key, nonce)
+                            output = body_decrypt(ciphertext, tag, key, nonce, aad)
                         finally:
                             self.assertIsNone(output)
                 elif category == "control_syntax":
@@ -574,18 +627,128 @@ class TestConformanceVectors(unittest.TestCase):
     def _segments(root):
         return root.findall(".//{http://www.newzbin.com/DTD/2003/nzb}segment")
 
+    @staticmethod
+    def _metadata(root):
+        return {
+            meta.get("type"): (meta.text or "")
+            for meta in root.findall(
+                "./{http://www.newzbin.com/DTD/2003/nzb}head/"
+                "{http://www.newzbin.com/DTD/2003/nzb}meta"
+            )
+        }
+
+    def _body_auth(self, case, segment_index, password=None, salt_hex=None):
+        """Run the Section 5 body authentication/decryption for a vector.
+
+        Returns (plaintext_or_None, failed). On any authentication failure
+        the returned plaintext is None (the zero-output obligation).
+        """
+        key = derive_key(
+            password or case["password"],
+            bytes.fromhex(salt_hex or case["salt_hex"]),
+        )
+        nonce = derive_body_nonce(key, segment_index)
+        ciphertext = bytes.fromhex(case["ciphertext_hex"])
+        tag = bytes.fromhex(case["tag_hex"])
+        aad = bytes.fromhex(case["aad_hex"])
+        try:
+            return body_decrypt(ciphertext, tag, key, nonce, aad), False
+        except ne.CryptoError:
+            return None, True
+
     def test_vec06_nzb_segment_identity(self):
-        """Verify NZB fixtures use only standard NZB 1.1 segment attributes."""
+        """Verify VEC-06: NZB parsing, tampered-index/metadata-mutation
+        authentication, zero-output obligations, and expected_segments."""
         self.assertEqual(self.nzb_identity_data["requirement"], "VEC-06")
+        exercised: set[str] = set()
         for case in self.nzb_identity_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
-                root = ET.fromstring(case["nzb_xml"])
-                for segment in self._segments(root):
-                    self.assertEqual(set(segment.attrib), {"bytes", "number"})
-                if case.get("is_encrypted"):
-                    metadata = {meta.get("type"): (meta.text or "") for meta in root.findall("./{http://www.newzbin.com/DTD/2003/nzb}head/{http://www.newzbin.com/DTD/2003/nzb}meta")}
-                    self.assertEqual(metadata.get("yenc_encrypted"), "true")
-                    self.assertIn("password", metadata)
+                exercised.add(case["id"])
+                category = case["category"]
+
+                if category in ("valid_identity", "unencrypted_compatibility"):
+                    root = ET.fromstring(case["nzb_xml"])
+                    for segment in self._segments(root):
+                        self.assertEqual(set(segment.attrib), {"bytes", "number"})
+                    if case.get("is_encrypted"):
+                        metadata = self._metadata(root)
+                        self.assertEqual(metadata.get("yenc_encrypted"), "true")
+                        self.assertIn("password", metadata)
+                    # Parsed records MUST match expected_segments exactly:
+                    # message id, part number, and byte count in XML order.
+                    parsed = [
+                        {
+                            "message_id": segment.text,
+                            "part": int(segment.get("number")),
+                            "bytes": int(segment.get("bytes")),
+                        }
+                        for segment in self._segments(root)
+                    ]
+                    self.assertEqual(parsed, case["expected_segments"])
+                    if category == "unencrypted_compatibility":
+                        # No provenance marker: a reader MUST treat this as
+                        # ordinary yEnc (no transport decryption dispatch).
+                        self.assertNotIn("yenc_encrypted", self._metadata(root))
+
+                elif category == "index_tampering":
+                    # The fetched article's bootstrap index is the TAMPERED
+                    # value; authentication against it MUST fail, and the
+                    # zero-output obligation must hold (no plaintext bytes
+                    # released, by CryptoError semantics and by assertion).
+                    self.assertTrue(case["zero_output_required"])
+                    self.assertEqual(case["expected_error"], "AUTHENTICATION_FAILURE")
+                    self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
+                    if "tampered_segments" in case:
+                        for seg in case["tampered_segments"]:
+                            output, failed = self._body_auth(
+                                seg,
+                                seg["tampered_segment_index"],
+                                password=case["password"],
+                                salt_hex=case["salt_hex"],
+                            )
+                            self.assertTrue(failed, case["id"])
+                            self.assertIsNone(output)
+                            # Sanity: with the ACTUAL index the same bytes
+                            # authenticate, proving the fixture itself is
+                            # sound and the failure is caused by the tamper.
+                            actual, failed_actual = self._body_auth(
+                                seg,
+                                seg["actual_segment_index"],
+                                password=case["password"],
+                                salt_hex=case["salt_hex"],
+                            )
+                            self.assertFalse(failed_actual, case["id"])
+                            self.assertEqual(actual, bytes.fromhex(seg["plaintext_hex"]))
+                    else:
+                        output, failed = self._body_auth(
+                            case, case["tampered_segment_index"]
+                        )
+                        self.assertTrue(failed, case["id"])
+                        self.assertIsNone(output)
+                        actual, failed_actual = self._body_auth(
+                            case, case["actual_segment_index"]
+                        )
+                        self.assertFalse(failed_actual, case["id"])
+                        self.assertEqual(actual, bytes.fromhex(case["plaintext_hex"]))
+
+                elif category == "metadata_mutation":
+                    # STD-1 Option A: mutated AAD (name/part/begin/bytes)
+                    # MUST fail authentication even though the ciphertext,
+                    # tag, salt, and index are all authentic, and MUST
+                    # release zero bytes.
+                    self.assertTrue(case["zero_output_required"])
+                    self.assertEqual(case["expected_error"], "AUTHENTICATION_FAILURE")
+                    self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
+                    output, failed = self._body_auth(case, case["segment_index"])
+                    self.assertTrue(failed, case["id"])
+                    self.assertIsNone(output)
+                    root = ET.fromstring(case["nzb_xml"])
+                    self.assertEqual(self._metadata(root).get("yenc_encrypted"), "true")
+
+                else:
+                    self.fail(f"Unknown nzb_segment_identity category: {category}")
+        all_ids = {case["id"] for case in self.nzb_identity_data["vectors"]}
+        self.assertEqual(exercised, all_ids)
 
     def test_vec07_index_allocation(self):
         """Verify uploader index skip vectors: forbidden candidates are skipped,
