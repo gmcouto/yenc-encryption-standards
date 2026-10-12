@@ -774,7 +774,7 @@ def generate_control_line_vectors(path: Path):
 
     vectors.append(
         {
-            "id": "control-vec-07-full-article-4-lines",
+            "id": "control-vec-07-full-article-5-lines",
             "description": "Full single-part combined-mode article: =ybegin, =yencryption header (line 2), two data lines untouched, =yend (line 5); line 1 bootstrap expansion",
             "password": password,
             "salt_hex": salt_hex.lower(),
@@ -844,7 +844,7 @@ def generate_control_line_vectors(path: Path):
 
     vectors.append(
         {
-            "id": "control-vec-10-exact-wrap-data-lines",
+            "id": "control-vec-10-exact-wrap-article-6-lines",
             "description": "STD-2 exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched, after a valid =yencryption header at line 2",
             "password": password,
             "salt_hex": salt_hex.lower(),
