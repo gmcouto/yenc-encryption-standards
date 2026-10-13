@@ -18,6 +18,12 @@ required for Usenet transmission.
 Change Log:
 
 Version 1.2 (2026-10-10):
+- Prose corrections: the structural "unsupported cipher suite" entry now
+  applies only to NZB metadata or local configuration validated before
+  fetch (a fetched unsupported cipher token stays provider corruption,
+  matching the Body standard); and step 7 now states the Body-mandated
+  processing order: wire CRC over ciphertext is verified before AEAD
+  authentication.
 - Clarified that encrypted names are present and non-empty, and the applicable
   ciphertext CRC is mandatory; violations are PROVIDER_FAILOVER.
 - Version 1.2 defines combined mode only (control line encryption and
@@ -438,8 +444,12 @@ Decryption Steps:
    d. Verify decrypted content starts with "=yend". Any other result,
       including an FF1 decryption error, is PROVIDER_FAILOVER.
    e. Replace line N encrypted content with decrypted content.
-7. Proceed to body decryption, wire CRC validation over ciphertext,
-   Poly1305 authentication, and downstream CRC normalization: decoders MUST either clear the CRC metadata
+7. Proceed to body decryption in the order required by the body standard
+   (Body Standard Section 5): decode yEnc data lines to ciphertext, verify
+   the applicable wire CRC over ciphertext (pcrc32 for multipart, crc32 for
+   single-part) before authentication, then perform Poly1305 authentication
+   and decryption, and finally apply downstream CRC normalization: decoders
+   MUST either clear the CRC metadata
    (crc32 = None) or recompute it over authenticated plaintext.
 8. Reconstruct the complete yEnc block with original line endings.
 
@@ -473,7 +483,7 @@ the effective password feeds the KDF unaltered.
    - Malformed NZB XML or invalid provenance metadata (INVALID_ENCRYPTION_PROVENANCE).
    - No transport password available in NZB or client configuration (MISSING_PASSWORD).
    - Unsupported specification version (UNSUPPORTED_VERSION).
-   - Unsupported cipher suite (UNSUPPORTED_CIPHER).
+   - An unsupported cipher suite in NZB metadata or local configuration, validated before an article fetch (UNSUPPORTED_CIPHER). An unsupported cipher token inside a fetched =yencryption line is provider corruption, not a structural failure (see the retriable tier below).
    - Unsupported Argon2id KDF parameters (UNSUPPORTED_KDF).
    Action: Abort the job without querying alternate Usenet servers.
    Output: Zero bytes of plaintext and zero bytes of ciphertext.

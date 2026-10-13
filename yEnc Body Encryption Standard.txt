@@ -18,6 +18,15 @@ integrity, and position-bound authenticity of the transmitted data.
 Change Log:
 
 Version 1.2 (2026-10-10):
+- Prose corrections: the Control standard's structural "unsupported cipher
+  suite" entry now applies only to NZB metadata or local configuration
+  validated before fetch, matching the Body standard's local-vs-fetched
+  classification; the Body standard's Section 10 example headings now
+  describe restored yEnc blocks rather than wire blocks; a leftover
+  conditional "dual-encrypted mode" qualifier was removed (v1.2 defines
+  combined mode only); and the Control standard's step 7 now states the
+  Body-mandated order (wire CRC over ciphertext before AEAD
+  authentication).
 - Clarified that encrypted names are present and non-empty, and the applicable
   ciphertext CRC is mandatory; violations are PROVIDER_FAILOVER.
 - AEAD associated data (AAD): each body encryption binds exact assembly
@@ -506,7 +515,7 @@ Decryption Processing:
    line terminators (CRLF or bare LF); a shorter or longer line fails the
    grammar check as a truncation or extension defect and MUST be treated
    as provider corruption.
-3. In dual-encrypted mode, assert that the 16-byte decoded salt equals
+3. Assert that the 16-byte decoded salt equals
    the restored Line 1 raw salt, and the decoded index equals the restored
    Line 1 segmentIndex. If unequal, fail closed with PROVIDER_FAILOVER
    (the retriable tier defined below): mark the article corrupt and try an
@@ -838,7 +847,7 @@ Derived parameters:
 - nonce: HMAC-SHA256(key, "yenc-body nonce" || uint32_be(1))[0:24]
   (where uint32_be(1) = 0x00 0x00 0x00 0x01)
 
-Single-Part yEnc Encoded Wire Block (Line 2 Placement):
+Single-Part Restored yEnc Block (Line 2 Placement):
 
   =ybegin line=128 size=16 name=file.bin
   =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695
@@ -849,7 +858,7 @@ The tag above is computed over the Section 2.1 AAD for this example
 (name=file.bin, partNumber=1, partBegin=1, segmentBytes=16) and is
 invalid under any other AAD, including the empty AAD.
 
-Multipart yEnc Encoded Wire Block (Line 3 Placement):
+Multipart Restored yEnc Block (Line 3 Placement):
 
   =ybegin part=1 total=2 line=128 size=16 name=file.bin
   =ypart begin=1 end=8
