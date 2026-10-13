@@ -326,25 +326,11 @@ def validate_dual_bootstrap(line1_salt: bytes, line1_index: int, yenc_params: di
     return True
 
 
-def ybegin_is_multipart(ybegin_line: str) -> bool:
-    """True when a part= keyword appears before name= (Body Std Section 3).
-
-    name= is the last =ybegin keyword and its value runs to the end of the
-    line, so a part= inside the file name never makes an article multipart.
-    """
-    name_pos = ybegin_line.find(" name=")
-    keywords = ybegin_line if name_pos == -1 else ybegin_line[:name_pos]
-    return any(token.startswith("part=") for token in keywords.split(" ")[1:])
-
-
-def combined_mode_layout(source: str | bool) -> dict:
+def combined_mode_layout(is_multipart: bool) -> dict:
     """Return the deterministic combined-mode layout (Control Std Section 5 step 4).
 
-    If source is a boolean, it indicates whether the article is multipart
-    (determined by whether physical line 2 restored to =ypart).
-    If source is a string, it checks for part= before name= (legacy helper).
+    is_multipart is true when physical line 2 restored to =ypart.
     """
-    is_multi = source if isinstance(source, bool) else ybegin_is_multipart(source)
-    if is_multi:
+    if is_multipart:
         return {"multipart": True, "header_line_indices": [1, 2, 3], "first_data_line": 4}
     return {"multipart": False, "header_line_indices": [1, 2], "first_data_line": 3}

@@ -24,10 +24,15 @@ Version 1.2 (2026-10-10):
   body encryption together); other framing modes are reserved for
   future standards. In combined mode, =yencryption is always present.
 - Deterministic header placement: receivers decrypt physical line 2
-  first (Option A) to determine multipart framing. Line 2 is =ypart
+  first to determine multipart framing. Line 2 is =ypart
   iff multipart; otherwise line 2 is =yencryption. Contradictory framing
   (mismatch between line 2 and restored =ybegin part=) is corrupt and
   rejected under PROVIDER_FAILOVER.
+- Whole-file CRC: producers MUST NOT emit crc32= on the last part of an
+  encrypted multipart article (or on any other part); receivers ignore
+  it if present. Each part carries pcrc32 over its ciphertext, and
+  authentication covers integrity, so no plaintext fingerprint is
+  published. Single-part articles keep crc32 over ciphertext.
 - Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB
   bound); producers refuse larger files and receivers treat >= 2^32 as
   PROVIDER_FAILOVER.
@@ -206,14 +211,14 @@ Input: Complete yEnc block with any line endings (LF or CRLF),
 password, and segmentIndex assigned to this segment.
 
 yEnc Structure Pattern:
-- Header line(s): "=ybegin ...", "=ypart ..." (if multipart), "=yencryption ..." (if body encrypted)
+- Header line(s): "=ybegin ...", "=ypart ..." (if multipart), "=yencryption ..."
 - Data lines: encoded binary data (multiple lines)
 - Footer line: "=yend ..."
 
 The control-line and data-line roles of every physical line are a
 function of position in this structure, not of line content. The
-decryption procedure (Section 5) infers the layout from the restored
-=ybegin line and fixed positions; it never inspects data-line bytes
+decryption procedure (Section 5) infers the layout from restored
+line 2 and fixed positions; it never inspects data-line bytes
 to locate boundaries.
 
 Combined Mode Header Placement Rules:
@@ -226,10 +231,10 @@ In combined mode, =yencryption is ALWAYS present:
   after =ybegin.
 - Multipart articles require =ypart at physical line 2 and =yencryption
   at physical line 3 immediately after =ypart.
-- Framing consistency: an article is multipart iff restored =ybegin carries
-  a part= keyword. A mismatch (for example line 2 is =ypart without part= on
-  =ybegin, or line 2 is =yencryption when =ybegin carries part=) is corrupt
-  framing and MUST fail under PROVIDER_FAILOVER.
+- Framing consistency: restored =ybegin MUST carry a part= keyword when
+  physical line 2 is =ypart, and MUST NOT carry one when line 2 is
+  =yencryption. A mismatch is corrupt framing and MUST fail under
+  PROVIDER_FAILOVER.
 - The header MUST conform to the Canonical =yencryption Grammar in Section 4
   of the yEnc Body Encryption Standard. Its wire form is:
   =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
@@ -414,8 +419,8 @@ Decryption Steps:
    h. Out of scope for v1.2: control-only articles (control line
       encryption without body encryption), articles with custom
       control lines other than =ybegin, =ypart, =yencryption, and
-      =yend, and header layouts not fixed by the restored =ybegin
-      line. A producer MUST NOT emit such articles in v1.2. A
+      =yend, and header layouts not fixed by restored line 2. A
+      producer MUST NOT emit such articles in v1.2. A
       receiver MAY implement additional modes, and for those modes it
       MAY decrypt the positions its own mode layout predicts; any
       such handling is local to that receiver and outside this
@@ -433,9 +438,8 @@ Decryption Steps:
    d. Verify decrypted content starts with "=yend". Any other result,
       including an FF1 decryption error, is PROVIDER_FAILOVER.
    e. Replace line N encrypted content with decrypted content.
-7. If body encryption is active, proceed to body decryption, wire CRC
-   validation over ciphertext, Poly1305 authentication, and downstream
-   CRC normalization: decoders MUST either clear the CRC metadata
+7. Proceed to body decryption, wire CRC validation over ciphertext,
+   Poly1305 authentication, and downstream CRC normalization: decoders MUST either clear the CRC metadata
    (crc32 = None) or recompute it over authenticated plaintext.
 8. Reconstruct the complete yEnc block with original line endings.
 
@@ -557,8 +561,8 @@ completes and MUST discard them on failure.
   keystream or leak decryption success/failure oracles. The FF1
   layer carries no content authentication; in combined mode the
   body standard's associated data (Body Standard Section 2.1)
-  provides position binding, and in a control-only use the restored
-  control lines have no cryptographic integrity guarantee.
+  provides position binding, and the restored control lines have no
+  cryptographic integrity guarantee of their own.
 - Subject lines, filenames, XML element order, and NNTP header order have
   no cryptographic role, enabling full subject and metadata obfuscation.
 - The KDF password is used exactly as delivered (UTF-8, no
@@ -714,9 +718,9 @@ Cryptographic Derivations:
 - segmentIndex: 1 (uint32_be: 0x00000001)
 - masterKey = Argon2id("test123", salt, time=1, memory=65536 KiB,
   parallelism=4, 32-byte output, version 0x13):
-  b6777085c3fc8dc3d82f3ef78ff05f590ce0f6700c5c4e97669d2a6327d5303c
-- encKey = HMAC-SHA256(masterKey, "yenc-control encKey" || uint32_be(1))[0:32]:
-  4181a96752d5bcf3a1e2f758ba3135c36fcbce1b4a6825c3453b320db914a87a
+  5dd5a3371f80a50eb96feb11787dd4567a09b55655aa3c2b1596bf2d45c9a6d7
+- encKey = HMAC-SHA256(masterKey, "yenc-control key"):
+  44c19e32f67759a9160c3ae4ee260b9ec6746f5e099adc5b58d0a6b5063d7319
 
 Wire Block Structure (Single-Part Combined Mode, 4 physical lines):
 
@@ -724,7 +728,7 @@ Line 1 (lineIndex=1):
   Plaintext (38 bytes):
     =ybegin line=128 size=16 name=file.bin
   tweak = HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(1) || uint32_be(1))[0:8]:
-    f9ee24b07f8fe322
+    00ce93d35755da1d
   FF1 Ciphertext (38 bytes hex):
     8265114f5401901d404853bf61452e880971cbe926d80c646f3922f6b262abb0c67f5ca82b50
   Wire Line 1 (58 bytes = 20-byte bootstrap prefix + 38 bytes ciphertext, hex):
@@ -734,7 +738,7 @@ Line 2 (lineIndex=2):
   Plaintext (128 bytes):
     =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695
   tweak = HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(1) || uint32_be(2))[0:8]:
-    2c8a2a514d3f3885
+    18dc00a656b5558b
   Wire Line 2 / FF1 Ciphertext (128 bytes hex):
     3fcc218a1965e2bb9b14dedf5ef6a7f99ad8ac60c19ff028228a7d532452117b1d399a26e36a13542f5eb3838e9f6a9c3d9b7a61b279a69bbcf9abc3d46329e9a1248cc4ff9f2a236d9c17841e184b21e484e383230773a4192247c2d991c7adca2cac114fa96e75f4c55ec107e9dc5b5873d55fc8cf4192576e38dc1eeb5cda
 
@@ -746,7 +750,7 @@ Line 4 (lineIndex=4, footer):
   Plaintext (28 bytes):
     =yend size=16 crc32=b3185887
   tweak = HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(1) || uint32_be(4))[0:8]:
-    3c09b307ec3c3983
+    09ce554319ebc645
   Wire Line 4 / FF1 Ciphertext (28 bytes hex):
     41f7c197df301ee98259af18d54858ef97ee54ccff770faedbcdbc4f
 

@@ -2,13 +2,13 @@
 """Deterministic conformance test vector generator for yEnc encryption standards v1.2.
 
 Produces canonical, machine-readable JSON fixtures for:
-- VEC-01: Argon2id key derivation (argon2id.json)
-- VEC-02: HMAC-SHA256 nonce and tweak derivations (nonce_tweak.json)
-- VEC-03: XChaCha20-Poly1305 body AEAD round-trips (body_encryption.json)
-- VEC-04: NIST SP 800-38G FF1 control-line encryption round-trips (control_line_encryption.json)
-- VEC-05: Malformed-input and negative rejection vectors (malformed_inputs.json)
-- VEC-06: Plain NZB 1.1 segment identity vectors (nzb_segment_identity.json)
-- VEC-07: Uploader segmentIndex allocation skip vectors (index_allocation.json)
+- Argon2id key derivation (argon2id.json)
+- HMAC-SHA256 nonce and tweak derivations (nonce_tweak.json)
+- XChaCha20-Poly1305 body AEAD round-trips (body_encryption.json)
+- NIST SP 800-38G FF1 control-line encryption round-trips (control_line_encryption.json)
+- Malformed-input and negative rejection vectors (malformed_inputs.json)
+- Plain NZB 1.1 segment identity vectors (nzb_segment_identity.json)
+- Uploader segmentIndex allocation skip vectors (index_allocation.json)
 - SHA-256 integrity manifest (manifest.json)
 """
 
@@ -23,6 +23,8 @@ import nacl.exceptions as ne
 
 STANDARD_VERSION = "1.2"
 GENERATED_AT = "2026-10-11T00:00:00Z"
+# Wire CRC-32 of the single ciphertext byte 0x1c that the one-byte data line "F" encodes.
+WIRE_CRC_F = "c603b3c2"
 
 # Import the canonical reference primitives so the generator and the test
 # harness share one exact statement of the derivations (AAD, KDF, nonces, FF1).
@@ -53,7 +55,7 @@ def _write_fixture(path: Path, fixture: dict) -> None:
 
 
 def generate_argon2id_vectors(path: Path):
-    """Generate VEC-01 Argon2id test vectors."""
+    """Generate Argon2id test vectors."""
     test_cases = [
         {
             "id": "argon2id-01-basic",
@@ -143,7 +145,6 @@ def generate_argon2id_vectors(path: Path):
     fixture = {
         "schema_version": "1.0",
         "standard": f"yEnc Body & Control Lines Encryption Standards v{STANDARD_VERSION}",
-        "requirement": "VEC-01",
         "parameters": {
             "algorithm": "Argon2id",
             "version": "0x13",
@@ -163,7 +164,7 @@ def generate_argon2id_vectors(path: Path):
 
 
 def generate_nonce_tweak_vectors(path: Path):
-    """Generate VEC-02 Nonce & Tweak derivation test vectors."""
+    """Generate Nonce & Tweak derivation test vectors."""
     body_key = derive_key("test123", bytes.fromhex("1a2b3c4d5e6f7890abcdef1234567890"))
     master_key = derive_key("test123", bytes.fromhex("4b376d5839704c32715238764e34775a"))
     enc_key = hmac.new(master_key, b"yenc-control key", hashlib.sha256).digest()
@@ -219,7 +220,6 @@ def generate_nonce_tweak_vectors(path: Path):
     fixture = {
         "schema_version": "1.0",
         "standard": f"yEnc Body & Control Lines Encryption Standards v{STANDARD_VERSION}",
-        "requirement": "VEC-02",
         "parameters": {
             "integer_encoding": "uint32_be (4-byte unsigned big-endian network byte order)",
             "body_nonce_message_format": "ASCII 'yenc-body nonce' (15B) + uint32_be(segmentIndex) (4B) = 19B",
@@ -235,7 +235,7 @@ def generate_nonce_tweak_vectors(path: Path):
 
 
 def generate_body_vectors(path: Path):
-    """Generate VEC-03 XChaCha20-Poly1305 body encryption round-trip test vectors."""
+    """Generate XChaCha20-Poly1305 body encryption round-trip test vectors."""
     cases = [
         {
             "id": "body-vec-01-spec-example",
@@ -310,12 +310,12 @@ def generate_body_vectors(path: Path):
             "aad": ("mötör-🔑.bin", 1, 1),
         },
         {
-            # STD-2: a valid article may contain a one-byte data line; the
+            # A valid article may contain a one-byte data line; the
             # body AEAD sees only raw bytes, but this pins the exact
             # one-byte ciphertext/tag contract used by the combined-mode
             # one-byte fixtures.
             "id": "body-vec-09-one-byte-payload",
-            "description": "One-byte plaintext payload (STD-2 one-byte data fixture)",
+            "description": "One-byte plaintext payload (one-byte data fixture)",
             "password": "test123",
             "salt_hex": "1a2b3c4d5e6f7890abcdef1234567890",
             "segment_index": 1,
@@ -381,7 +381,6 @@ def generate_body_vectors(path: Path):
     fixture = {
         "schema_version": "1.0",
         "standard": f"yEnc Body Encryption Standard v{STANDARD_VERSION}",
-        "requirement": "VEC-03",
         "cipher": "XChaCha20-Poly1305",
         "aad_layout": "yenc-body aad(13) || uint32_be(partNumber) || uint32_be(partBegin) || uint64_be(segmentBytes) || uint32_be(nameLength) || nameBytes (Body Standard Section 2.1)",
         "vectors": vectors,
@@ -392,7 +391,7 @@ def generate_body_vectors(path: Path):
 
 
 def generate_control_line_vectors(path: Path):
-    """Generate VEC-04 FF1 control-line encryption round-trip test vectors."""
+    """Generate FF1 control-line encryption round-trip test vectors."""
     password = "test123"
     salt_hex = "4b376d5839704c32715238764e34775a"  # ASCII "K7mX9pL2qR8vN4wZ" (alphabet characters)
     salt_bytes = bytes.fromhex(salt_hex)
@@ -618,7 +617,7 @@ def generate_control_line_vectors(path: Path):
         }
     )
 
-    # STD-2 exact-wrap fixture: data line whose length is exactly the yEnc
+    # Exact-wrap fixture: data line whose length is exactly the yEnc
     # line wrap; a genuine control line has the same length class, so only
     # position-based restoration decodes this article deterministically.
     art_exact_wrap_lines = [
@@ -662,7 +661,7 @@ def generate_control_line_vectors(path: Path):
         "=ypart begin=1 end=1",
         f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         "F",
-        "=yend size=1 part=1 pcrc32=16df26f1",
+        "=yend size=1 part=1 pcrc32="+WIRE_CRC_F,
     ]
     art_combined_wire = []
     for l_idx, line in enumerate(art_combined_lines, start=1):
@@ -679,7 +678,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-11-combined-one-byte-data",
-            "description": "STD-2 combined-mode multipart fixture with a one-byte data line: deterministic header positions (1..3), data line untouched",
+            "description": "Combined-mode multipart fixture with a one-byte data line: deterministic header positions (1..3), data line untouched",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -690,13 +689,13 @@ def generate_control_line_vectors(path: Path):
     )
 
     # Single-part article whose name contains "=ypart " and "part=": physical
-    # line 2 (not strings in =ybegin name=) governs layout (STD-13, D-3),
+    # line 2 (not strings in =ybegin name=) governs layout,
     # so =yencryption is line 2.
     art_name_part_lines = [
         "=ybegin line=128 size=1 name=my =ypart part=2.bin",
         f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=d5582bae5bd0c8dfd2a8a477ebd4dd30",
         "F",
-        "=yend size=1 crc32=16df26f1",
+        "=yend size=1 crc32="+WIRE_CRC_F,
     ]
     art_name_part_wire = []
     for l_idx, line in enumerate(art_name_part_lines, start=1):
@@ -729,7 +728,6 @@ def generate_control_line_vectors(path: Path):
     fixture = {
         "schema_version": "1.0",
         "standard": f"yEnc Control Lines Encryption Standard v{STANDARD_VERSION}",
-        "requirement": "VEC-04",
         "cipher": "FF1",
         "radix": 253,
         "vectors": vectors,
@@ -740,7 +738,7 @@ def generate_control_line_vectors(path: Path):
 
 
 def generate_malformed_input_vectors(path: Path):
-    """Generate VEC-05 malformed-input rejection and zero-output test vectors."""
+    """Generate malformed-input rejection and zero-output test vectors."""
     password = "test123"
     salt_hex = "1a2b3c4d5e6f7890abcdef1234567890"
     salt = bytes.fromhex(salt_hex)
@@ -941,7 +939,7 @@ def generate_malformed_input_vectors(path: Path):
             "expected_error": "AUTHENTICATION_FAILURE",
             "zero_output_required": True,
         },
-        # 2b. Metadata Mutation Failures (STD-1 Option A: AAD binding)
+        # 2b. Metadata Mutation Failures (AAD binding)
         {
             "id": "auth-failure-05-mutated-name",
             "category": "auth_failure",
@@ -1151,7 +1149,7 @@ def generate_malformed_input_vectors(path: Path):
         {
             "id": "placement-03-ypart-without-part-param",
             "category": "placement",
-            "description": "Physical line 2 is =ypart but restored =ybegin has no part= parameter (C-2 contradictory framing)",
+            "description": "Physical line 2 is =ypart but restored =ybegin has no part= parameter (contradictory framing)",
             "has_part_on_ybegin": False,
             "is_ypart_on_line2": True,
             "expected_error": "INVALID_MULTIPART_FRAMING",
@@ -1160,7 +1158,7 @@ def generate_malformed_input_vectors(path: Path):
         {
             "id": "placement-04-yencryption-line2-with-part-param",
             "category": "placement",
-            "description": "Physical line 2 is =yencryption (single-part placement), but restored =ybegin carries a part= parameter (C-2 contradictory framing)",
+            "description": "Physical line 2 is =yencryption (single-part placement), but restored =ybegin carries a part= parameter (contradictory framing)",
             "has_part_on_ybegin": True,
             "is_ypart_on_line2": False,
             "line_index": 2,
@@ -1225,7 +1223,7 @@ def generate_malformed_input_vectors(path: Path):
         },
         {
             "id": "metadata-04-body-only-vs-combined-only",
-            "category": "metadata_validation",
+            "category": "framing",
             "description": "Body-only-mode article (includes =yencryption line but omits Line 1 Control-Line bootstrap) presented to a combined-only receiver: mode unsupported",
             "expected_error": "CONTROL_LINE_DECRYPT_FAILURE",
             "expected_rejection_stage": "PROVIDER_FAILOVER",
@@ -1236,18 +1234,13 @@ def generate_malformed_input_vectors(path: Path):
 
     structural_categories = {"metadata_validation"}
     for vector in vectors:
-        if vector["id"] == "metadata-04-body-only-vs-combined-only":
-            vector["expected_rejection_stage"] = "PROVIDER_FAILOVER"
-            vector["provider_failover_permitted"] = True
-        else:
-            structural = vector["category"] in structural_categories
-            vector["expected_rejection_stage"] = "METADATA_VALIDATION" if structural else "PROVIDER_FAILOVER"
-            vector["provider_failover_permitted"] = not structural
+        structural = vector["category"] in structural_categories
+        vector["expected_rejection_stage"] = "METADATA_VALIDATION" if structural else "PROVIDER_FAILOVER"
+        vector["provider_failover_permitted"] = not structural
 
     fixture = {
         "schema_version": "1.0",
         "standard": f"yEnc Body & Control Lines Encryption Standards v{STANDARD_VERSION}",
-        "requirement": "VEC-05",
         "vectors": vectors,
     }
 
@@ -1503,7 +1496,7 @@ def generate_nzb_segment_identity_vectors(path: Path):
     })
 
     # -------------------------------------------------------------------------
-    # Category 4: metadata_mutation (STD-1 Option A: AAD binding of assembly
+    # Category 4: metadata_mutation (AAD binding of assembly
     # metadata; each mutated field must fail body authentication)
     # -------------------------------------------------------------------------
     mut_pw = "test123"
@@ -1553,7 +1546,6 @@ def generate_nzb_segment_identity_vectors(path: Path):
     fixture = {
         "schema_version": "1.0",
         "standard": f"yEnc Body & Control Lines Encryption Standards v{STANDARD_VERSION}",
-        "requirement": "VEC-06",
         "vectors": vectors,
     }
     _write_fixture(path, fixture)
@@ -1600,7 +1592,6 @@ def generate_index_allocation_vectors(path: Path):
 
     fixture = {
         "schema_version": "1.0",
-        "requirement": "VEC-07",
         "description": (
             "Uploader segmentIndex allocation skip vectors: a candidate index whose uint32_be encoding "
             "contains 0x0A or 0x0D is forbidden; uploaders MUST skip to the next permitted index."
@@ -1616,31 +1607,24 @@ def generate_manifest(output_dir: Path):
     files_meta = {
         "argon2id.json": {
             "description": "RFC 9106 Argon2id key derivation test vectors",
-            "requirement": "VEC-01",
         },
         "nonce_tweak.json": {
             "description": "HMAC-SHA256 nonce and tweak derivation test vectors",
-            "requirement": "VEC-02",
         },
         "body_encryption.json": {
             "description": "RFC 8439 Extended XChaCha20-Poly1305 body encryption round-trip vectors",
-            "requirement": "VEC-03",
         },
         "control_line_encryption.json": {
             "description": "NIST SP 800-38G FF1 control-line encryption round-trip vectors",
-            "requirement": "VEC-04",
         },
         "malformed_inputs.json": {
             "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors",
-            "requirement": "VEC-05",
         },
         "nzb_segment_identity.json": {
             "description": "NZB 1.1 parsing, self-describing article identity, and compatibility vectors",
-            "requirement": "VEC-06",
         },
         "index_allocation.json": {
             "description": "Uploader segmentIndex allocation skip vectors",
-            "requirement": "VEC-07",
         },
     }
 
@@ -1664,7 +1648,6 @@ def generate_manifest(output_dir: Path):
             "sha256": sha256_hash,
             "vector_count": v_count,
             "description": meta["description"],
-            "requirement": meta["requirement"],
         }
 
     manifest = {

@@ -2,18 +2,18 @@
 """Automated conformance test harness for yEnc encryption standards v1.2.
 
 Tests conformance against:
-- VEC-01: Argon2id key derivation fixtures (argon2id.json), including the
+- Argon2id key derivation fixtures (argon2id.json), including the
   no-normalization password policy
-- VEC-02: HMAC-SHA256 nonce and tweak derivations (nonce_tweak.json)
-- VEC-03: XChaCha20-Poly1305 body encryption round-trips with Section 2.1
+- HMAC-SHA256 nonce and tweak derivations (nonce_tweak.json)
+- XChaCha20-Poly1305 body encryption round-trips with Section 2.1
   associated data (body_encryption.json)
-- VEC-04: NIST SP 800-38G FF1 control-line encryption round-trips and
+- NIST SP 800-38G FF1 control-line encryption round-trips and
   deterministic combined-mode restoration fixtures (control_line_encryption.json)
-- VEC-05: Malformed-input rejection and zero-output security (malformed_inputs.json)
-- VEC-06: NZB 1.1 identity parsing, tampered-index/metadata-mutation
+- Malformed-input rejection and zero-output security (malformed_inputs.json)
+- NZB 1.1 identity parsing, tampered-index/metadata-mutation
   authentication enforcement, and zero-output obligations
   (nzb_segment_identity.json)
-- VEC-07: Uploader segmentIndex allocation skip vectors (index_allocation.json)
+- Uploader segmentIndex allocation skip vectors (index_allocation.json)
 - Manifest SHA-256 integrity verification (manifest.json)
 """
 
@@ -54,7 +54,7 @@ from yenc_enc_reference import (
 
 
 def check_multipart_framing(has_part_on_ybegin: bool, is_ypart_on_line2: bool) -> None:
-    """Validate physical line 2 multipart framing consistency (C-2, STD-13).
+    """Validate physical line 2 multipart framing consistency.
     Physical line 2 is =ypart if and only if =ybegin carries part= keyword.
     Any mismatch is corrupt Usenet framing -> PROVIDER_FAILOVER."""
     if has_part_on_ybegin != is_ypart_on_line2:
@@ -64,7 +64,7 @@ def check_multipart_framing(has_part_on_ybegin: bool, is_ypart_on_line2: bool) -
 
 
 def check_file_size_bound(size: int) -> None:
-    """Four-GiB bound (STD-14): encrypted files and offsets MUST be < 2^32 bytes."""
+    """Four-GiB bound: encrypted files and offsets MUST be < 2^32 bytes."""
     if size >= 0x100000000:
         raise ValueError("SIZE_OVERFLOW")
 
@@ -185,19 +185,15 @@ class TestConformanceVectors(unittest.TestCase):
 
     def test_fixture_schema_and_failure_classifications(self):
         """Validate fixture metadata and structural/provider failure boundaries."""
-        for data, requirement in ((self.malformed_data, "VEC-05"), (self.nzb_identity_data, "VEC-06")):
+        for data in (self.malformed_data, self.nzb_identity_data):
             self.assertEqual(data["schema_version"], "1.0")
-            self.assertEqual(data["requirement"], requirement)
             self.assertTrue(data["vectors"])
 
         structural_categories = {"metadata_validation"}
-        provider_categories = {"header_syntax", "placement", "salt_mismatch", "control_syntax", "auth_failure"}
+        provider_categories = {"header_syntax", "placement", "salt_mismatch", "control_syntax", "auth_failure", "framing"}
         for case in self.malformed_data["vectors"]:
             self.assertTrue(case["zero_output_required"], case["id"])
-            if case["id"] == "metadata-04-body-only-vs-combined-only":
-                self.assertTrue(case["provider_failover_permitted"])
-                self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
-            elif case["category"] in structural_categories:
+            if case["category"] in structural_categories:
                 self.assertFalse(case["provider_failover_permitted"])
                 self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
             else:
@@ -219,7 +215,7 @@ class TestConformanceVectors(unittest.TestCase):
         self.assertTrue(expected_errors <= observed)
 
     def test_vec01_argon2id(self):
-        """Verify VEC-01 Argon2id key derivation outputs, including the
+        """Verify Argon2id key derivation outputs, including the
         no-normalization policy vectors."""
         params = self.argon2id_data["parameters"]
         for case in self.argon2id_data["vectors"]:
@@ -254,7 +250,7 @@ class TestConformanceVectors(unittest.TestCase):
                     self.assertEqual(len(keys), len(case["no_normalization_distinct_passwords"]))
 
     def test_vec02_nonce_tweak(self):
-        """Verify VEC-02 nonce and tweak derivations."""
+        """Verify nonce and tweak derivations."""
         for case in self.nonce_tweak_data["body_nonce_vectors"]:
             key = bytes.fromhex(case["key_hex"])
             expected_msg = b"yenc-body nonce" + struct.pack(">I", case["segment_index"])
@@ -269,7 +265,7 @@ class TestConformanceVectors(unittest.TestCase):
             self.assertEqual(tweak.hex(), case["expected_tweak_hex"])
 
     def test_vec03_body_encryption(self):
-        """Verify VEC-03 body round-trips, canonical five-token headers, and
+        """Verify body round-trips, canonical five-token headers, and
         the Section 2.1 AAD serialization."""
         for case in self.body_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
@@ -300,12 +296,12 @@ class TestConformanceVectors(unittest.TestCase):
                 self.assertEqual(params["tag"], tag)
                 self.assertEqual(body_decrypt(ciphertext, tag, key, nonce, aad), plaintext)
                 # The same ciphertext with the empty AAD must fail: the
-                # tag is AAD-bound (STD-1 Option A).
+                # tag is AAD-bound.
                 with self.assertRaises(ne.CryptoError):
                     body_decrypt(ciphertext, tag, key, nonce, b"")
 
     def test_vec04_control_line_encryption(self):
-        """Verify VEC-04 FF1 control-line encryption and 20-byte Line 1 bootstrap."""
+        """Verify FF1 control-line encryption and 20-byte Line 1 bootstrap."""
         for b in range(1, 256):
             if b in (0x0A, 0x0D):
                 with self.assertRaises(ValueError):
@@ -335,7 +331,7 @@ class TestConformanceVectors(unittest.TestCase):
                     self.assertEqual(restored, plaintext)
                 else:
                     if "expected_multipart" in case:
-                        layout = combined_mode_layout(case["input_lines"][0])
+                        layout = combined_mode_layout(case["input_lines"][1].startswith("=ypart"))
                         self.assertEqual(layout["multipart"], case["expected_multipart"])
                         self.assertEqual(layout["first_data_line"], case["expected_first_data_line"])
                     for line_index, (line, wire_hex) in enumerate(zip(case["input_lines"], case["expected_wire_lines_hex"]), start=1):
@@ -354,7 +350,7 @@ class TestConformanceVectors(unittest.TestCase):
                             self.assertEqual(wire, line.encode("ascii"))
 
     def test_vec05_malformed_inputs(self):
-        """Verify VEC-05 malformed bootstrap and authentication failures enforce zero output."""
+        """Verify malformed bootstrap and authentication failures enforce zero output."""
         metadata_tokens = {
             "MISSING_ENCRYPTION_PROVENANCE",
             "INVALID_ENCRYPTION_PROVENANCE",
@@ -366,6 +362,7 @@ class TestConformanceVectors(unittest.TestCase):
             "control_syntax",
             "salt_mismatch",
             "placement",
+            "framing",
             "metadata_validation",
         }
         exercised: set[str] = set()
@@ -399,17 +396,18 @@ class TestConformanceVectors(unittest.TestCase):
                             case["line_index"],
                             case["multipart"],
                         )
+                elif category == "framing":
+                    # Article-level framing vectors: schema assertion only (the
+                    # article bytes are not carried).
+                    self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
+                    self.assertTrue(case["provider_failover_permitted"])
+                    self.assertEqual(case["expected_error"], "CONTROL_LINE_DECRYPT_FAILURE")
                 elif category == "metadata_validation":
                     # Metadata-level vectors: schema assertion only (no crypto
                     # primitive applies; the article bytes are not carried).
-                    if case["id"] == "metadata-04-body-only-vs-combined-only":
-                        self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
-                        self.assertTrue(case["provider_failover_permitted"])
-                        self.assertEqual(case["expected_error"], "CONTROL_LINE_DECRYPT_FAILURE")
-                    else:
-                        self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
-                        self.assertFalse(case["provider_failover_permitted"])
-                        self.assertIn(case["expected_error"], metadata_tokens)
+                    self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
+                    self.assertFalse(case["provider_failover_permitted"])
+                    self.assertIn(case["expected_error"], metadata_tokens)
                 elif category == "auth_failure":
                     key = derive_key(case["password"], bytes.fromhex(case["salt_hex"]))
                     nonce = derive_body_nonce(key, case["segment_index"])
@@ -504,9 +502,8 @@ class TestConformanceVectors(unittest.TestCase):
             return None, True
 
     def test_vec06_nzb_segment_identity(self):
-        """Verify VEC-06: NZB parsing, tampered-index/metadata-mutation
+        """Verify NZB parsing, tampered-index/metadata-mutation
         authentication, zero-output obligations, and expected_segments."""
-        self.assertEqual(self.nzb_identity_data["requirement"], "VEC-06")
         exercised: set[str] = set()
         for case in self.nzb_identity_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
@@ -579,7 +576,7 @@ class TestConformanceVectors(unittest.TestCase):
                         self.assertEqual(actual, bytes.fromhex(case["plaintext_hex"]))
 
                 elif category == "metadata_mutation":
-                    # STD-1 Option A: mutated AAD (name/part/begin/bytes)
+                    # mutated AAD (name/part/begin/bytes)
                     # MUST fail authentication even though the ciphertext,
                     # tag, salt, and index are all authentic, and MUST
                     # release zero bytes.
@@ -600,7 +597,6 @@ class TestConformanceVectors(unittest.TestCase):
     def test_vec07_index_allocation(self):
         """Verify uploader index skip vectors: forbidden candidates are skipped,
         assigned indices never contain 0x0A/0x0D, and 269 itself is forbidden."""
-        self.assertEqual(self.index_allocation_data["requirement"], "VEC-07")
         for case in self.index_allocation_data["vectors"]:
             with self.subTest(vector_id=case["id"]):
                 self.assertEqual(case["category"], "index_allocation")
@@ -630,7 +626,7 @@ class TestConformanceVectors(unittest.TestCase):
 
 
     def test_std13_multipart_framing_cases(self):
-        """Verify C-2 undefined multipart framing cases raise appropriate errors."""
+        """Verify undefined multipart framing cases raise appropriate errors."""
         # Case 1: Line 2 is =ypart but =ybegin lacks part=
         with self.assertRaisesRegex(ValueError, "INVALID_MULTIPART_FRAMING"):
             check_multipart_framing(has_part_on_ybegin=False, is_ypart_on_line2=True)
@@ -642,7 +638,7 @@ class TestConformanceVectors(unittest.TestCase):
         check_multipart_framing(has_part_on_ybegin=True, is_ypart_on_line2=True)
 
     def test_std14_four_gib_bound(self):
-        """Verify STD-14 4-GiB bound enforcement: size/offset >= 2^32 is rejected."""
+        """Verify 4-GiB bound enforcement: size/offset >= 2^32 is rejected."""
         with self.assertRaises(ValueError):
             uint32_be(0x100000000)
         with self.assertRaisesRegex(ValueError, "SIZE_OVERFLOW"):

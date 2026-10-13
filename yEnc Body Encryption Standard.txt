@@ -42,6 +42,11 @@ Version 1.2 (2026-10-10):
   normalization applied, Argon2id uses version 0x13 (v=19), time=1,
   memory=65536 KiB, parallelism=4, a 32-byte output, and empty optional
   secret and associated data (Section 4).
+- Whole-file CRC: producers MUST NOT emit crc32= on the last part of an
+  encrypted multipart article (or on any other part); receivers ignore
+  it if present. Each part carries pcrc32 over its ciphertext, and
+  authentication covers integrity, so no plaintext fingerprint is
+  published. Single-part articles keep crc32 over ciphertext.
 - Error tiers are classified by the input that failed validation:
   NZB metadata and local configuration validated before fetch are
   structural (METADATA_VALIDATION); bytes in a fetched article are
@@ -488,7 +493,7 @@ Decryption Processing:
    A missing, incomplete, truncated, or misplaced =yencryption line at
    the expected position is provider corruption (see the retriable
    tier below), not a structural failure; the failure classes are named
-   by the malformed-input taxonomy (for example
+   by the malformed-input taxonomy (Control Lines Standard Section 5; for example
    MISPLACED_ENCRYPTION_HEADER, INVALID_MULTIPART_FRAMING, or
    LINE_TRUNCATED) and retry is permitted.
 2. Validate that the line conforms strictly to the five tokens grammar
@@ -512,6 +517,9 @@ Decryption Processing:
    PROVIDER_FAILOVER before AEAD authentication. Verify that CRC against
    ciphertext bytes. The wire
    CRC is computed over the decoded ciphertext bytes, never over plaintext.
+   A multipart =yend carries only pcrc32: producers MUST NOT emit a
+   whole-file crc32 on any part of an encrypted multipart article,
+   including the last, and receivers ignore one if present.
    CRC verification MUST precede AEAD authentication, and passing the CRC
    check confers no permission to release bytes: the zero-output rule below
    remains in force until authentication succeeds.
@@ -717,7 +725,7 @@ For an encrypted upload, the NZB writer MUST:
    KDF (Section 4); a password that cannot be XML-represented MUST
    NOT be posted with the NZB metadata route.
 3. Emit standard NZB 1.1 <segment> elements with bytes and number attributes only. The bytes attribute MUST equal the segment's plaintext byte count (the AAD segmentBytes, Section 2.1).
-4. Embed the 1-based segmentIndex into the article bootstrap: the =yencryption index parameter always, and the Line 1 prefix bytes 16..19 only when combined with control line encryption.
+4. Embed the 1-based segmentIndex into the article bootstrap: the =yencryption index parameter and the Line 1 prefix bytes 16..19.
 5. Ensure each encrypted article has a unique segmentIndex within the upload session.
 6. Assign indices continuously starting from 1 for fresh uploads, skipping every index whose four-byte big-endian uint32_be(segmentIndex) contains 0x0A or 0x0D.
 7. Preserve an article's assigned index across retries, reposts, and resume.
@@ -847,15 +855,15 @@ Multipart yEnc Encoded Wire Block (Line 3 Placement):
   =ypart begin=1 end=8
   =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=3a7f9545d93a5ce72be0ad0da4472b7d
   <yEnc-encoded ciphertext data lines>
-  =yend size=8 part=1 pcrc32=16df26f1
+  =yend size=8 part=1 pcrc32=b02a3f48
 
 The multipart tag is computed over the Section 2.1 AAD for the
 8-byte first part (partNumber=1, partBegin=1, segmentBytes=8,
 name=file.bin); its first 8 ciphertext bytes are
-6a0d1eb225f84492. The pcrc32=16df26f1 value is the CRC-32 of the
-8-byte plaintext fragment 0x48656C6C6F20576F (this is a conformance
-value); the wire CRC in =yend would still cover the ciphertext bytes,
-not this plaintext CRC.
+6a0d1eb225f84492. The pcrc32=b02a3f48 value is the CRC-32 of those 8
+ciphertext bytes, as the wire CRC always covers ciphertext (Section 5
+step 5); it is not the CRC-32 of the plaintext fragment
+0x48656C6C6F20576F.
 
 Decryption follows the authoritative procedure in Section 5: parse NZB
 metadata and detect <meta type="yenc_encrypted">true</meta>, locate the

@@ -11,8 +11,22 @@ Tests conformance against:
 """
 
 import re
+import sys
 import unittest
+import zlib
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from yenc_enc_reference import (  # noqa: E402
+    body_encrypt,
+    build_aad,
+    derive_body_nonce,
+    derive_control_keys,
+    derive_key,
+    ff1_encrypt,
+    uint32_be,
+)
 
 
 class TestStandardsV1(unittest.TestCase):
@@ -440,6 +454,44 @@ class TestStandardsV1(unittest.TestCase):
         # 7. Four-GiB file size bound (< 2^32 bytes)
         for spec in (self.body_spec, self.control_spec, self.readme):
             self.assertRegex(spec, r"(?i)2\^32\s+bytes|four-GiB bound|4\s*GiB")
+
+    def test_section_10_examples_match_reference(self):
+        """Recompute every hex value printed in the Body and Control Section 10 examples."""
+        plaintext = bytes.fromhex("48656C6C6F20576F726C642E747874FF")
+        salt = bytes.fromhex("1a2b3c4d5e6f7890abcdef1234567890")
+        key = derive_key("test123", salt)
+        nonce = derive_body_nonce(key, 1)
+        body_10 = self.body_spec.split("\n10. Example", 1)[1]
+
+        aad = build_aad(b"file.bin", 1, 1, 16)
+        self.assertIn(aad.hex(), re.sub(r"\s+", "", body_10))
+        ciphertext, tag = body_encrypt(plaintext, key, nonce, aad)
+        self.assertIn(f"tag={tag.hex()}", body_10)
+        self.assertIn(f"=yend size=16 crc32={zlib.crc32(ciphertext):08x}", body_10)
+
+        aad_part = build_aad(b"file.bin", 1, 1, 8)
+        ciphertext_part, tag_part = body_encrypt(plaintext[:8], key, nonce, aad_part)
+        self.assertIn(f"tag={tag_part.hex()}", body_10)
+        self.assertIn(ciphertext_part.hex(), body_10)
+        self.assertIn(f"=yend size=8 part=1 pcrc32={zlib.crc32(ciphertext_part):08x}", body_10)
+
+        control_10 = self.control_spec.split("\n10. Example", 1)[1]
+        self.assertIn(key.hex(), control_10)
+        enc_key, _ = derive_control_keys(key, 1, 1)
+        self.assertIn(enc_key.hex(), control_10)
+        lines = {
+            1: "=ybegin line=128 size=16 name=file.bin",
+            2: f"=yencryption cipher=XChaCha20-Poly1305 salt={salt.hex()} index=00000001 tag={tag.hex()}",
+            4: f"=yend size=16 crc32={zlib.crc32(ciphertext):08x}",
+        }
+        for line_index, plain_line in lines.items():
+            self.assertIn(plain_line, control_10)
+            line_key, tweak = derive_control_keys(key, 1, line_index)
+            wire = ff1_encrypt(line_key, tweak, plain_line.encode("ascii"))
+            self.assertIn(tweak.hex(), control_10)
+            self.assertIn(wire.hex(), control_10)
+            if line_index == 1:
+                self.assertIn((salt + uint32_be(1) + wire).hex(), control_10)
 
 
 if __name__ == "__main__":
