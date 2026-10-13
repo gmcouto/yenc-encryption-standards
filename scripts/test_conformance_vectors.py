@@ -18,9 +18,7 @@ Tests conformance against:
 """
 
 import hashlib
-import hmac
 import json
-import math
 import re
 import struct
 import sys
@@ -35,212 +33,40 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
         sys.path.insert(0, p)
 
 import argon2.low_level as ll
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-import nacl.bindings as nb
 import nacl.exceptions as ne
 
 # The canonical reference primitives shared with the vector generator.
 from yenc_enc_reference import (
-    build_aad,
     body_decrypt,
+    body_encrypt,
+    build_aad,
+    byte_to_numeral,
     combined_mode_layout,
     derive_body_nonce,
     derive_control_keys,
     derive_key,
+    extract_bootstrap_from_line1,
+    ff1_decrypt,
+    numeral_to_byte,
     uint32_be,
+    validate_dual_bootstrap,
 )
 
-# ---------------------------------------------------------------------------
-# Embedded cryptographic verification primitives.
-#
-# These helpers are the canonical derivation, decryption, and validation
-# routines exercised by the conformance vectors below. They are embedded here
-# so the conformance suite runs standalone against the retained JSON fixtures
-# without depending on any vector-generation scaffolding.
-# ---------------------------------------------------------------------------
+
+def check_multipart_framing(has_part_on_ybegin: bool, is_ypart_on_line2: bool) -> None:
+    """Validate physical line 2 multipart framing consistency (C-2, STD-13).
+    Physical line 2 is =ypart if and only if =ybegin carries part= keyword.
+    Any mismatch is corrupt Usenet framing -> PROVIDER_FAILOVER."""
+    if has_part_on_ybegin != is_ypart_on_line2:
+        if has_part_on_ybegin and not is_ypart_on_line2:
+            raise ValueError("MISPLACED_ENCRYPTION_HEADER")
+        raise ValueError("INVALID_MULTIPART_FRAMING")
 
 
-def uint32_be(val: int) -> bytes:
-    """Serialize 32-bit unsigned integer in big-endian network byte order."""
-    if not (0 <= val <= 0xFFFFFFFF):
-        raise ValueError(f"Value {val} out of range for uint32_be")
-    return struct.pack(">I", val)
-
-
-def derive_key(password: str, salt: bytes) -> bytes:
-    """Derive 32-byte key using Argon2id RFC 9106 parameters."""
-    return ll.hash_secret_raw(
-        secret=password.encode("utf-8"),
-        salt=salt,
-        time_cost=1,
-        memory_cost=65536,  # 64 MiB
-        parallelism=4,
-        hash_len=32,
-        type=ll.Type.ID,
-        version=0x13,
-    )
-
-
-def derive_body_nonce(body_key: bytes, segment_index: int) -> bytes:
-    """Derive 24-byte nonce for XChaCha20-Poly1305 via 19-byte HMAC-SHA256 layout."""
-    message = b"yenc-body nonce" + uint32_be(segment_index)
-    return hmac.new(body_key, message, hashlib.sha256).digest()[:24]
-
-
-def derive_control_keys(master_key: bytes, segment_index: int, line_index: int):
-    """Derive 32-byte encKey and 8-byte tweak for FF1 control line encryption."""
-    enc_key = hmac.new(master_key, b"yenc-control key", hashlib.sha256).digest()
-    tweak_msg = b"yenc-control tweak" + uint32_be(segment_index) + uint32_be(line_index)
-    tweak = hmac.new(master_key, tweak_msg, hashlib.sha256).digest()[:8]
-    return enc_key, tweak
-
-
-def extract_bootstrap_from_line1(line1_bytes: bytes) -> tuple[bytes, int, bytes]:
-    """Extract salt (16B), uint32_be segmentIndex (4B), and ciphertext (>=2B) from Line 1."""
-    if len(line1_bytes) < 22:
-        raise ValueError("LINE_TRUNCATED")
-    salt = line1_bytes[:16]
-    for b in salt:
-        if b in (0x00, 0x0A, 0x0D):
-            raise ValueError("INVALID_SALT_CHARACTER")
-    seg_idx = struct.unpack(">I", line1_bytes[16:20])[0]
-    if seg_idx == 0:
-        raise ValueError("ZERO_SEGMENT_INDEX")
-    # Index framing rule (Control Std v1.2 Section 2/4/5/8): a uint32_be(segmentIndex)
-    # containing 0x0A or 0x0D injects an NNTP line delimiter into the Line 1
-    # prefix and splits the bootstrap short. Decoders MUST reject under
-    # PROVIDER_FAILOVER.
-    for b in line1_bytes[16:20]:
-        if b in (0x0A, 0x0D):
-            raise ValueError("FORBIDDEN_SEGMENT_INDEX_BYTE")
-    ciphertext = line1_bytes[20:]
-    return salt, seg_idx, ciphertext
-
-
-def validate_dual_bootstrap(line1_salt: bytes, line1_index: int, yenc_params: dict) -> bool:
-    """Verify byte-for-byte salt equality and value-for-value index equality."""
-    if line1_salt != yenc_params["salt"]:
-        raise ValueError("DUAL_SALT_MISMATCH")
-    if line1_index != yenc_params["segment_index"]:
-        raise ValueError("DUAL_INDEX_MISMATCH")
-    return True
-
-
-def body_encrypt(plaintext: bytes, key: bytes, nonce: bytes, aad: bytes) -> tuple[bytes, bytes]:
-    """Encrypt payload using XChaCha20-Poly1305 with Section 2.1 AAD."""
-    ct_and_tag = nb.crypto_aead_xchacha20poly1305_ietf_encrypt(plaintext, aad, nonce, key)
-    ciphertext = ct_and_tag[:-16]
-    tag = ct_and_tag[-16:]
-    return ciphertext, tag
-
-
-def body_decrypt(ciphertext: bytes, tag: bytes, key: bytes, nonce: bytes, aad: bytes) -> bytes:
-    """Authenticate and decrypt payload with Section 2.1 AAD; raises on failure."""
-    ct_and_tag = ciphertext + tag
-    return nb.crypto_aead_xchacha20poly1305_ietf_decrypt(ct_and_tag, aad, nonce, key)
-
-
-def byte_to_numeral(b: int) -> int:
-    """Map byte octet to numeral 0..252 per yEnc Control Lines Standard v1.2."""
-    if 0x01 <= b <= 0x09:
-        return b - 1
-    elif b == 0x0B:
-        return 9
-    elif b == 0x0C:
-        return 10
-    elif 0x0E <= b <= 0xFF:
-        return b - 3
-    raise ValueError(f"Byte 0x{b:02x} is outside the 253-byte Alphabet (0x00, 0x0A, 0x0D forbidden)")
-
-
-def numeral_to_byte(i: int) -> int:
-    """Map numeral 0..252 back to byte octet per yEnc Control Lines Standard v1.2."""
-    if 0 <= i <= 8:
-        return i + 1
-    elif i == 9:
-        return 0x0B
-    elif i == 10:
-        return 0x0C
-    elif 11 <= i <= 252:
-        return i + 3
-    raise ValueError(f"Numeral {i} is out of range [0, 252]")
-
-
-def num_radix(numerals: list[int], radix: int) -> int:
-    res = 0
-    for n in numerals:
-        res = res * radix + n
-    return res
-
-
-def str_radix(val: int, radix: int, m: int) -> list[int]:
-    res = [0] * m
-    for i in range(m):
-        res[m - 1 - i] = val % radix
-        val //= radix
-    return res
-
-
-def cbc_mac(aes_enc, data: bytes) -> bytes:
-    block = bytes(16)
-    for i in range(0, len(data), 16):
-        chunk = data[i : i + 16]
-        xored = bytes(a ^ b for a, b in zip(block, chunk))
-        block = aes_enc(xored)
-    return block
-
-
-def ff1_decrypt_numerals(key: bytes, tweak: bytes, numerals: list[int], radix: int = 253) -> list[int]:
-    """NIST SP 800-38G FF1 Decryption over arbitrary numeral strings."""
-    backend = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
-    aes_enc = backend.update
-    n = len(numerals)
-    t = len(tweak)
-    u = n // 2
-    v = n - u
-    b = math.ceil(math.ceil(v * math.log2(radix)) / 8)
-    d = 4 * math.ceil(b / 4) + 4
-
-    p = bytearray(16)
-    p[0], p[1], p[2] = 1, 2, 1
-    p[3:6] = radix.to_bytes(3, "big")
-    p[6] = 10
-    p[7] = u % 256
-    p[8:12] = n.to_bytes(4, "big")
-    p[12:16] = t.to_bytes(4, "big")
-
-    pad_len = ((-t - b - 1) % 16 + 16) % 16
-    q_prefix = tweak + bytes(pad_len)
-
-    A = list(numerals[:u])
-    B = list(numerals[u:])
-
-    for round_idx in range(10):
-        i = 9 - round_idx
-        q = q_prefix + bytes([i]) + num_radix(A, radix).to_bytes(b, "big")
-        R = cbc_mac(aes_enc, bytes(p) + q)
-        S = bytearray(R)
-        j = 1
-        while len(S) < d:
-            j_bytes = j.to_bytes(16, "big")
-            blk = bytes(a ^ b for a, b in zip(R, j_bytes))
-            S.extend(aes_enc(blk))
-            j += 1
-        y = int.from_bytes(S[:d], "big")
-        m = u if i % 2 == 0 else v
-        c = (num_radix(B, radix) - y) % (radix**m)
-        C = str_radix(c, radix, m)
-        B = A
-        A = C
-
-    return A + B
-
-
-def ff1_decrypt(key: bytes, tweak: bytes, ciphertext_bytes: bytes, radix: int = 253) -> bytes:
-    """Decrypt control line byte string using FF1 over Radix 253 Alphabet."""
-    numerals = [byte_to_numeral(b) for b in ciphertext_bytes]
-    pt_numerals = ff1_decrypt_numerals(key, tweak, numerals, radix)
-    return bytes(numeral_to_byte(i) for i in pt_numerals)
+def check_file_size_bound(size: int) -> None:
+    """Four-GiB bound (STD-14): encrypted files and offsets MUST be < 2^32 bytes."""
+    if size >= 0x100000000:
+        raise ValueError("SIZE_OVERFLOW")
 
 
 def check_header_placement(line_index: int, multipart: bool) -> None:
@@ -368,7 +194,10 @@ class TestConformanceVectors(unittest.TestCase):
         provider_categories = {"header_syntax", "placement", "salt_mismatch", "control_syntax", "auth_failure"}
         for case in self.malformed_data["vectors"]:
             self.assertTrue(case["zero_output_required"], case["id"])
-            if case["category"] in structural_categories:
+            if case["id"] == "metadata-04-body-only-vs-combined-only":
+                self.assertTrue(case["provider_failover_permitted"])
+                self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
+            elif case["category"] in structural_categories:
                 self.assertFalse(case["provider_failover_permitted"])
                 self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
             else:
@@ -530,7 +359,6 @@ class TestConformanceVectors(unittest.TestCase):
             "MISSING_ENCRYPTION_PROVENANCE",
             "INVALID_ENCRYPTION_PROVENANCE",
             "MISSING_PASSWORD",
-            "METADATA_VALIDATION_BODY_ONLY",
         }
         dispatchable_categories = {
             "header_syntax",
@@ -555,19 +383,33 @@ class TestConformanceVectors(unittest.TestCase):
                         ValueError, re.escape(case["expected_error"]), parse_yencryption_line_v11, case["input_line"]
                     )
                 elif category == "placement":
-                    self.assertRaisesRegex(
-                        ValueError,
-                        re.escape(case["expected_error"]),
-                        check_header_placement,
-                        case["line_index"],
-                        case["multipart"],
-                    )
+                    if "has_part_on_ybegin" in case and "is_ypart_on_line2" in case:
+                        self.assertRaisesRegex(
+                            ValueError,
+                            re.escape(case["expected_error"]),
+                            check_multipart_framing,
+                            case["has_part_on_ybegin"],
+                            case["is_ypart_on_line2"],
+                        )
+                    else:
+                        self.assertRaisesRegex(
+                            ValueError,
+                            re.escape(case["expected_error"]),
+                            check_header_placement,
+                            case["line_index"],
+                            case["multipart"],
+                        )
                 elif category == "metadata_validation":
                     # Metadata-level vectors: schema assertion only (no crypto
                     # primitive applies; the article bytes are not carried).
-                    self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
-                    self.assertFalse(case["provider_failover_permitted"])
-                    self.assertIn(case["expected_error"], metadata_tokens)
+                    if case["id"] == "metadata-04-body-only-vs-combined-only":
+                        self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
+                        self.assertTrue(case["provider_failover_permitted"])
+                        self.assertEqual(case["expected_error"], "CONTROL_LINE_DECRYPT_FAILURE")
+                    else:
+                        self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
+                        self.assertFalse(case["provider_failover_permitted"])
+                        self.assertIn(case["expected_error"], metadata_tokens)
                 elif category == "auth_failure":
                     key = derive_key(case["password"], bytes.fromhex(case["salt_hex"]))
                     nonce = derive_body_nonce(key, case["segment_index"])
@@ -785,6 +627,27 @@ class TestConformanceVectors(unittest.TestCase):
             validate_dual_bootstrap(bytes(16), params["segment_index"], params)
         with self.assertRaisesRegex(ValueError, "DUAL_INDEX_MISMATCH"):
             validate_dual_bootstrap(params["salt"], params["segment_index"] + 1, params)
+
+
+    def test_std13_multipart_framing_cases(self):
+        """Verify C-2 undefined multipart framing cases raise appropriate errors."""
+        # Case 1: Line 2 is =ypart but =ybegin lacks part=
+        with self.assertRaisesRegex(ValueError, "INVALID_MULTIPART_FRAMING"):
+            check_multipart_framing(has_part_on_ybegin=False, is_ypart_on_line2=True)
+        # Case 2: =ybegin carries part= but line 2 is =yencryption
+        with self.assertRaisesRegex(ValueError, "MISPLACED_ENCRYPTION_HEADER"):
+            check_multipart_framing(has_part_on_ybegin=True, is_ypart_on_line2=False)
+        # Valid cases must not raise
+        check_multipart_framing(has_part_on_ybegin=False, is_ypart_on_line2=False)
+        check_multipart_framing(has_part_on_ybegin=True, is_ypart_on_line2=True)
+
+    def test_std14_four_gib_bound(self):
+        """Verify STD-14 4-GiB bound enforcement: size/offset >= 2^32 is rejected."""
+        with self.assertRaises(ValueError):
+            uint32_be(0x100000000)
+        with self.assertRaisesRegex(ValueError, "SIZE_OVERFLOW"):
+            check_file_size_bound(0x100000000)
+        check_file_size_bound(0xFFFFFFFF)
 
 
 if __name__ == "__main__":

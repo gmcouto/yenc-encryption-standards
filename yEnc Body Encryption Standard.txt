@@ -18,6 +18,8 @@ integrity, and position-bound authenticity of the transmitted data.
 Change Log:
 
 Version 1.2 (2026-10-10):
+- Clarified that encrypted names are present and non-empty, and the applicable
+  ciphertext CRC is mandatory; violations are PROVIDER_FAILOVER.
 - AEAD associated data (AAD): each body encryption binds exact assembly
   metadata as the XChaCha20-Poly1305 associated data, in this exact byte
   layout (2.1), computed after dot-unstuffing: ASCII prefix "yenc-body
@@ -27,6 +29,15 @@ Version 1.2 (2026-10-10):
   without charset interpretation or normalization). Empty AAD is
   invalid. Producers and consumers MUST apply this AAD (Section 4);
   see Section 2.1 and Section 7 for what remains unauthenticated.
+  The partNumber value is sourced from the part= parameter of the
+  restored =ybegin line for multipart articles, or 1 for single-part
+  articles.
+- Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB
+  bound); producers refuse larger files and receivers treat >= 2^32 as
+  PROVIDER_FAILOVER.
+- Version 1.2 defines combined mode only (control line encryption and
+  body encryption together); other framing modes are reserved for
+  future standards.
 - KDF inputs are exact: the password is encoded to UTF-8 with no Unicode
   normalization applied, Argon2id uses version 0x13 (v=19), time=1,
   memory=65536 KiB, parallelism=4, a 32-byte output, and empty optional
@@ -39,12 +50,10 @@ Version 1.2 (2026-10-10):
   provider corruption, as is an unsupported wire cipher token
   (Section 5).
 - Each article identifies itself. The =yencryption line carries five
-  tokens (cipher, salt, index, tag) in strict lowercase hex, is exactly
+  tokens (=yencryption, cipher, salt, index, tag) in strict lowercase hex, is exactly
   128 characters long, and sits at physical line 2 (single-part) or
-  line 3 (multipart, after =ypart). An article is multipart when its
-  =ybegin line carries a part= keyword
-  among the keywords before name=, even if total=1 (name= is the last
-  keyword and runs to the end of the line, so its value never counts).
+  line 3 (multipart, after =ypart). An article is multipart if and only if
+  physical line 2 after =ybegin is =ypart; otherwise it is single-part.
 - Added segmentIndex: an unsigned 32-bit value in 1..=4294967295, unique
   per upload session and stable across retries, reposts, and resume.
   Uploaders skip any value whose big-endian bytes contain 0x0A or 0x0D.
@@ -139,12 +148,18 @@ and transport integrity are required across Usenet distribution networks.
 
   segmentIndex:
     An unsigned 32-bit integer in the range 1..=4294967295 carried
-    in the article bootstrap. In combined mode it appears both as the
+    in the article bootstrap. Version 1.2 defines combined mode only
+    (other modes are reserved); the value appears both as the
     index parameter of =yencryption and as bytes 16..19 of the Line 1
-    prefix. In body-only mode the article has no Line 1 prefix, so the
-    value is carried solely in the =yencryption index parameter. It
-    provides unique nonce values for every segment across the upload
-    session without file-boundary arithmetic or NZB XML dependencies.
+    prefix. It provides unique nonce values for every segment across
+    the upload session without file-boundary arithmetic or NZB XML
+    dependencies.
+
+  Four-GiB File Size Bound:
+    An explicit bound requiring every encrypted file to be strictly
+    smaller than 2^32 bytes (4 GiB). Because partNumber, partBegin,
+    and nameLength in the Associated Data are 32-bit unsigned integers,
+    offsets and sizes of 2^32 bytes or larger cannot be encoded.
 
   yenc_encrypted Provenance:
     An explicit metadata flag in the NZB <head> section defined as
@@ -190,8 +205,11 @@ AAD layout (concatenation, in this exact order):
 
 Field definitions:
 
-  partNumber: the number parameter of the restored =ypart line for
-  multipart articles, or 1 for single-part articles.
+  partNumber: the part= parameter of the restored =ybegin line for
+  multipart articles, or 1 for single-part articles (=ypart has no
+  part number parameter in yEnc; single-part is literal 1). Encrypted
+  receivers NEVER read part= from =ybegin to decide header placement;
+  they decrypt physical line 2 first.
 
   partBegin: the begin parameter of the restored =ypart line for
   multipart articles, or 1 for single-part articles (a single-part
@@ -210,8 +228,9 @@ Field definitions:
   4-byte unsigned big-endian integer. The AAD subject is the exact
   byte value of the name parameter of the restored =ybegin line,
   without any character set interpretation or normalization. The
-  name parameter is mandatory in the =ybegin line of an encrypted
-  article: a restored =ybegin line without a name parameter fails
+  name parameter MUST be present and non-empty in the =ybegin line of
+  an encrypted article: a restored =ybegin line without a name parameter
+  or with an empty name parameter fails
   under PROVIDER_FAILOVER (fetched article) before any decryption.
 
 Serialization rules:
@@ -219,6 +238,9 @@ Serialization rules:
 - All integers are unsigned, big-endian, fixed width (4 or 8 bytes as
   listed). No length prefix, separator, or padding exists between
   fields beyond the widths above.
+- Encrypted files MUST be smaller than 2^32 bytes (four-GiB bound).
+  Producers MUST refuse files of 2^32 bytes or larger. Receivers MUST
+  treat begin or size values >= 2^32 as PROVIDER_FAILOVER.
 - The AAD MUST NOT include the authentication tag, the ciphertext,
   the salt, the segmentIndex, the wire CRC, or any other field: the
   tag and ciphertext are the protected AEAD inputs themselves, the
@@ -279,24 +301,24 @@ defines the encryption algorithm, including key and nonce derivation and the
 canonical =yencryption header grammar. Section 5 defines the decryption
 procedure and error handling.
 
-Header placement: an article is multipart when its =ybegin line carries
-a part= keyword (yEnc 1.3) among the keywords before name=, whatever
-its total= value; otherwise it is single-part. The name= keyword is
-last and its value runs to the end of the line, so text inside the
-name (for example "name=my part=2.bin") never makes an article
-multipart. For single-part articles, =yencryption is physical
-line 2, immediately following =ybegin. For multipart articles, =ypart
-is physical line 2 and =yencryption is physical line 3, immediately
-following =ypart. The header references the segmentIndex assigned to
-the segment.
+Header placement: an article is multipart if and only if physical
+line 2 after =ybegin is =ypart; otherwise it is single-part. For
+single-part articles, =yencryption is physical line 2, immediately
+following =ybegin. For multipart articles, =ypart is physical line 2
+and =yencryption is physical line 3, immediately following =ypart.
+The header references the segmentIndex assigned to the segment.
+Encrypted receivers NEVER read part= from =ybegin to decide header
+placement; they decrypt physical line 2 first. A mismatch between
+physical line 2 framing and the restored =ybegin content (for example,
+line 2 is =ypart without part= on =ybegin, or line 2 is =yencryption
+when =ybegin carries part=) is corrupt framing and MUST fail under
+PROVIDER_FAILOVER.
 
-Article bootstrap layout (combined mode): when control line encryption is
-also applied, the Line 1 prefix is a fixed 20-byte sequence, 16 raw salt
-bytes at offsets 0..15 followed by uint32_be(segmentIndex) at offsets
-16..19 (the exact layout defined by the control lines standard). In
-body-only mode there is no Line 1 bootstrap and no dual-bootstrap check;
-the salt and segmentIndex come solely from the =yencryption header. In
-combined mode the same salt value is what the =yencryption salt parameter
+Article bootstrap layout: Version 1.2 defines combined mode only (other
+modes are reserved). The Line 1 prefix is a fixed 20-byte sequence,
+16 raw salt bytes at offsets 0..15 followed by uint32_be(segmentIndex)
+at offsets 16..19 (the exact layout defined by the control lines
+standard). The same salt value is what the =yencryption salt parameter
 encodes, and the same segmentIndex value is what the =yencryption index
 parameter encodes; see the Dual-Bootstrap Agreement.
 
@@ -316,15 +338,15 @@ Algorithm: XChaCha20-Poly1305 (RFC 8439 Extended)
 Parameters:
   - Cipher: XChaCha20 (256-bit key, 192-bit nonce)
   - Authentication: Poly1305 (128-bit tag)
-  - Salt: 16-byte random value over the full byte domain 0x00..0xFF
-    (generated via cryptographically secure RNG). In body-only mode the
-    salt is not restricted to the 253 Alphabet bytes. In combined mode
-    (control line encryption also applied) the single shared salt MUST lie
-    in the intersection of the two domains, which is the control standard's
-    253-byte Alphabet: every salt byte MUST differ from 0x00, 0x0A, and 0x0D
-    so that the byte-for-byte dual-bootstrap equality in the control
-    standard is satisfiable. A producer that samples a forbidden byte for
-    the shared salt cannot satisfy both standards and MUST resample.
+  - Salt: 16-byte random value drawn from the control standard's
+    253-byte Alphabet (generated via cryptographically secure RNG):
+    every salt byte MUST differ from 0x00, 0x0A, and 0x0D so that the
+    byte-for-byte dual-bootstrap equality is satisfied (Version 1.2
+    defines combined mode only; other modes are reserved). A producer
+    that samples a forbidden byte for the salt cannot satisfy both
+    standards and MUST resample.
+  - File Size: Encrypted files MUST be strictly smaller than 2^32 bytes
+    (four-GiB bound). Producers MUST refuse larger files.
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output). The exact KDF inputs are fixed and
     are not configurable:
@@ -376,8 +398,9 @@ Parameters:
 
 Procedure:
 
-  a. Generate salt = Random 16-byte value (once per upload session,
-     use cryptographically secure RNG).
+  a. Generate salt = Random 16-byte value drawn from the 253-byte
+     Alphabet (no 0x00, 0x0A, 0x0D; once per upload session, use
+     cryptographically secure RNG).
   b. Derive key = Argon2id(password encoded to UTF-8 with no
      normalization, salt, time=1, memory=65536 KiB, parallelism=4,
      32-byte output, version 0x13, empty optional secret and
@@ -436,8 +459,8 @@ hexadecimal (HEXDIG-LOWER: %x30-39 / %x61-66). Producers MUST emit
 lowercase only, and consumers MUST reject uppercase digits as a grammar
 violation.
 
-A yEnc block is multipart when its =ybegin line carries a part= keyword
-before name=, including part=1 total=1; otherwise it is single-part. Single-part yEnc blocks
+A yEnc block is multipart if and only if physical line 2 after =ybegin
+is =ypart; otherwise it is single-part. Single-part yEnc blocks
 MUST place =yencryption at physical line 2 immediately
 after =ybegin. Multipart yEnc blocks MUST place =ypart at physical line 2 and
 =yencryption at physical line 3 immediately after =ypart. A consumer MUST
@@ -458,11 +481,16 @@ password.
 Decryption Processing:
 
 1. Parse the yEnc block and locate the =yencryption header at line 2
-   (single-part) or line 3 (multipart). A missing, incomplete, or truncated
-   =yencryption line at the expected position is provider corruption (see
-   the retriable tier below), not a structural failure; the failure classes
-   are named by the malformed-input taxonomy (for example MISPLACED_
-   ENCRYPTION_HEADER or LINE_TRUNCATED) and retry is permitted.
+   (single-part) or line 3 (multipart). An encrypted receiver decrypts
+   physical line 2 first to determine placement. If physical line 2
+   decrypts to =ypart, line 3 is expected to be =yencryption. If
+   physical line 2 decrypts to =yencryption, the article is single-part.
+   A missing, incomplete, truncated, or misplaced =yencryption line at
+   the expected position is provider corruption (see the retriable
+   tier below), not a structural failure; the failure classes are named
+   by the malformed-input taxonomy (for example
+   MISPLACED_ENCRYPTION_HEADER, INVALID_MULTIPART_FRAMING, or
+   LINE_TRUNCATED) and retry is permitted.
 2. Validate that the line conforms strictly to the five tokens grammar
    with cipher=XChaCha20-Poly1305, valid lowercase 32-hex salt, valid
    lowercase 8-hex index (non-zero), and valid lowercase 32-hex tag.
@@ -479,7 +507,10 @@ Decryption Processing:
    (the retriable tier defined below): mark the article corrupt and try an
    eligible alternate provider.
 4. Decode yEnc data lines to extract ciphertext bytes.
-5. Verify wire CRC against ciphertext bytes if present in =yend. The wire
+5. The =yend line MUST contain pcrc32 for multipart articles or crc32
+   for single-part articles. A missing or invalid applicable CRC fails under
+   PROVIDER_FAILOVER before AEAD authentication. Verify that CRC against
+   ciphertext bytes. The wire
    CRC is computed over the decoded ciphertext bytes, never over plaintext.
    CRC verification MUST precede AEAD authentication, and passing the CRC
    check confers no permission to release bytes: the zero-output rule below
@@ -487,9 +518,11 @@ Decryption Processing:
 6. Derive key and nonce using password, salt, and segmentIndex (uint32_be).
 7. Compute the Associated Data (AAD) exactly per Section 2.1 from the
    restored control-line values (partNumber, partBegin, segmentBytes,
-   name), then authenticate and decrypt ciphertext using
-   XChaCha20-Poly1305 with that AAD. If authentication fails, no CRC result observed in step 5
-   changes the outcome: the article fails as provider corruption.
+   name). If begin or size is >= 2^32, fail closed under
+   PROVIDER_FAILOVER. Then authenticate and decrypt ciphertext using
+   XChaCha20-Poly1305 with that AAD. If authentication fails, no CRC
+   result observed in step 5 changes the outcome: the article fails as
+   provider corruption.
 8. On authentication success, apply the CRC positive obligation below and
    forward decrypted plaintext to assembly/PAR2.
 
@@ -542,15 +575,15 @@ resolution of all configured sources is a structural failure. The
 effective password is used for KDF exactly as specified in Section 4,
 with no alteration.
 
-Combined-only interoperability: v1.2 producers MUST emit combined
-mode only (control line encryption and body encryption together);
-producers MUST NOT emit body-only or control-only articles. v1.2
-receivers MUST support combined mode and MAY reject a body-only
-article. The NZB carries no mode metadata, so the mode is discovered
-only in the fetched article bytes and the rejection is provider
-corruption (PROVIDER_FAILOVER). A client MUST NOT invent NZB mode
-metadata to classify it earlier.
-Body-only and control-only modes remain defined for future versions.
+Combined-only interoperability: Version 1.2 defines combined mode only
+(control line encryption and body encryption together); other framing
+modes are reserved for future standards. v1.2 producers MUST emit
+combined mode only; producers MUST NOT emit body-only or control-only
+articles. v1.2 receivers MUST support combined mode and MUST reject
+articles in other modes under PROVIDER_FAILOVER. The NZB carries no
+mode metadata, so the mode is discovered only in the fetched article
+bytes and the rejection is provider corruption (PROVIDER_FAILOVER). A
+client MUST NOT invent NZB mode metadata to classify it earlier.
 
 1. Non-Retriable Structural Failures:
    - Missing NZB provenance when transport decryption was requested.
@@ -582,6 +615,7 @@ Body-only and control-only modes remain defined for future versions.
      Section 2.1.
    - NZB <segment> bytes disagreement with restored segment geometry,
      for a consumer that performs the optional comparison (Section 2.1).
+   - File size or segment offset >= 2^32 bytes (four-GiB bound violation).
    - Wire CRC mismatch over decoded ciphertext.
    - Poly1305 authentication tag verification failure, including any
      failure under the Section 2.1 associated data.
@@ -701,7 +735,7 @@ An encryption-aware NZB reader MUST:
    Encryption-aware readers MUST accept both canonical NZB namespaces,
    http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd,
    or match <segment> and other elements irrespective of default XML namespace prefixing.
-4. Extract segmentIndex and salt directly from fetched article bootstrap bytes: body-only mode reads the =yencryption header while combined mode verifies the Line 1 prefix, rejecting any article whose four-byte big-endian uint32_be(segmentIndex) representation contains forbidden bytes 0x0A or 0x0D under PROVIDER_FAILOVER.
+4. Extract segmentIndex and salt directly from fetched article bootstrap bytes (Line 1 prefix and =yencryption header), asserting dual-bootstrap agreement and rejecting any article whose four-byte big-endian uint32_be(segmentIndex) representation contains forbidden bytes 0x0A or 0x0D under PROVIDER_FAILOVER.
 5. Use the extracted segmentIndex for body nonce derivation.
 6. Compute the Section 2.1 associated data from the restored control
    lines and pass it as the XChaCha20-Poly1305 associated data on
@@ -756,11 +790,9 @@ Decoupling of Presentation Metadata:
   2.1, RFC 3977 Section 6.2.1). Decoders MUST locate it by this rule
   and MUST NOT find it by trial decryption of header lines.
 - Downstream CRC Normalization: After successful Poly1305 verification,
-  decoders MUST NOT persist the ciphertext wire CRC into any verification
-  path (PAR2, quick-check, whole-file CRC folding). They MUST either clear
-  the CRC metadata (crc32 = None) or recompute it over authenticated
-  plaintext so subsequent assembly and PAR2 tools compute fresh CRCs over
-  plaintext.
+  decoders MUST follow the Downstream CRC Normalization obligation
+  defined in Section 5 (clear ciphertext wire CRC metadata (crc32 = None)
+  or recompute it over authenticated plaintext).
 
 ----------------------------------------------------------------------
 10. Example

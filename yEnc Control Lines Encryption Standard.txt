@@ -18,6 +18,19 @@ required for Usenet transmission.
 Change Log:
 
 Version 1.2 (2026-10-10):
+- Clarified that encrypted names are present and non-empty, and the applicable
+  ciphertext CRC is mandatory; violations are PROVIDER_FAILOVER.
+- Version 1.2 defines combined mode only (control line encryption and
+  body encryption together); other framing modes are reserved for
+  future standards. In combined mode, =yencryption is always present.
+- Deterministic header placement: receivers decrypt physical line 2
+  first (Option A) to determine multipart framing. Line 2 is =ypart
+  iff multipart; otherwise line 2 is =yencryption. Contradictory framing
+  (mismatch between line 2 and restored =ybegin part=) is corrupt and
+  rejected under PROVIDER_FAILOVER.
+- Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB
+  bound); producers refuse larger files and receivers treat >= 2^32 as
+  PROVIDER_FAILOVER.
 - Combined-mode decoding is deterministic: header positions are
   inferred from the restored structure, never discovered by trial
   decryption of data lines. Data lines are passed through untouched
@@ -51,10 +64,9 @@ Version 1.2 (2026-10-10):
 - Decoding restores Line 1, then the fixed header positions inferred
   from the restored structure, then the =yend footer identified by
   position. Line terminators are kept byte for byte.
-- An article is multipart when its =ybegin line carries a part= keyword
-  among the keywords before name=, even if total=1; multipart articles
-  carry =ypart at line 2. The name= value runs to the end of the line
-  and never counts.
+- An article is multipart if and only if physical line 2 after =ybegin
+  is =ypart; otherwise it is single-part. Multipart articles carry
+  =ypart at physical line 2 and =yencryption at physical line 3.
 - Line 1 of the yEnc block is the first line of the article body; in an
   ARTICLE response it follows the blank line that ends the headers. It
   is never found by trial decryption.
@@ -181,6 +193,12 @@ due to the bootstrap prefix prepended to the first line.
     0x0A, and 0x0D. A producer that samples a forbidden byte for the
     shared salt cannot satisfy both standards and MUST resample.
 
+  Four-GiB File Size Bound:
+    An explicit bound requiring every encrypted file to be strictly
+    smaller than 2^32 bytes (4 GiB). Producers MUST refuse files of
+    2^32 bytes or larger. Receivers MUST treat begin or size values
+    >= 2^32 as PROVIDER_FAILOVER.
+
 ----------------------------------------------------------------------
 3. Processing Procedure
 
@@ -199,16 +217,19 @@ decryption procedure (Section 5) infers the layout from the restored
 to locate boundaries.
 
 Combined Mode Header Placement Rules:
-When control line encryption is combined with body encryption:
-- An article is multipart when its restored =ybegin line carries a part=
-  keyword (yEnc 1.3) among the keywords before name=, whatever its
-  total= value; otherwise it is single-part. The name= keyword is last
-  and its value runs to the end of the line, so text inside the name
-  (for example "name=my part=2.bin") never makes an article multipart.
+Version 1.2 defines combined mode only (other framing modes are reserved).
+In combined mode, =yencryption is ALWAYS present:
+- An article is multipart if and only if physical line 2 after =ybegin is
+  =ypart; otherwise it is single-part. Encrypted receivers NEVER read part=
+  from =ybegin to decide header placement; they decrypt physical line 2 first.
 - Single-part articles require =yencryption at physical line 2 immediately
   after =ybegin.
 - Multipart articles require =ypart at physical line 2 and =yencryption
   at physical line 3 immediately after =ypart.
+- Framing consistency: an article is multipart iff restored =ybegin carries
+  a part= keyword. A mismatch (for example line 2 is =ypart without part= on
+  =ybegin, or line 2 is =yencryption when =ybegin carries part=) is corrupt
+  framing and MUST fail under PROVIDER_FAILOVER.
 - The header MUST conform to the Canonical =yencryption Grammar in Section 4
   of the yEnc Body Encryption Standard. Its wire form is:
   =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
@@ -245,6 +266,8 @@ Parameters:
     rejection produces a non-uniform salt and MUST NOT be used;
     rejection sampling, which re-draws any forbidden value, remains
     uniform and is permitted.
+  - File Size: Encrypted files MUST be strictly smaller than 2^32 bytes
+    (four-GiB bound). Producers MUST refuse larger files.
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
     threads=4, 256-bit output). The exact KDF inputs are fixed and
     identical to the body standard's (Body Standard Section 4):
@@ -342,46 +365,53 @@ Decryption Steps:
       segmentIndex, and lineIndex=1.
    f. Apply FF1 decryption over the 253-character Alphabet.
    g. Verify decrypted content starts with "=ybegin". If it does not,
-      classify error per two-tier error rules.
+      classify error as PROVIDER_FAILOVER (token CONTROL_LINE_DECRYPT_FAILURE)
+      and release zero bytes.
    h. Replace line 1 encrypted content with decrypted content.
-4. Determine the header layout deterministically from the restored
-   Line 1 (=ybegin) content, before touching any other line. The
-   article is multipart when the restored =ybegin line carries a
-   part= keyword before name=, and single-part otherwise. Header positions are
-   inferred from that structure; a data line is never decrypted to
-   discover them (normative; see also step 5).
-   a. In combined mode (control line encryption with body encryption,
-      the only production mode of v1.2) the encrypted control lines
-      occupy fixed positions:
-      - Single-part: line 1 is =ybegin, line 2 is =yencryption. The
-        first data line is lineIndex D = 3.
-      - Multipart: line 1 is =ybegin, line 2 is =ypart, line 3 is
-        =yencryption. D = 4.
-   b. Decrypt the =ypart line (multipart, lineIndex=2) with the tweak
-      for its lineIndex, and decrypt the =yencryption line (line 2
-      single-part, line 3 multipart) with the tweak for its lineIndex.
-      For the restored =yencryption line, validate the canonical
+4. Determine the header layout deterministically: in combined mode (the
+   normative v1.2 contract), physical line 2 is always an encrypted
+   control line. The receiver decrypts physical line 2 first (lineIndex=2)
+   using encKey and the tweak derived for lineIndex=2, before deciding placement.
+   a. If line 2 decrypts to "=ypart ...":
+      The article is multipart: line 2 is =ypart. The receiver then
+      decrypts physical line 3 (lineIndex=3) with the tweak derived for
+      lineIndex=3, which MUST decrypt to "=yencryption ...". First data
+      line index D is 4.
+      Framing consistency check: verify that the restored =ybegin line
+      carries a part= parameter. If restored =ybegin lacks a part=
+      parameter, framing is contradictory; reject the article under
+      PROVIDER_FAILOVER (token INVALID_MULTIPART_FRAMING).
+   b. If line 2 decrypts to "=yencryption ...":
+      The article is single-part: line 2 is =yencryption. First data line
+      index D is 3.
+      Framing consistency check: verify that the restored =ybegin line
+      does NOT carry a part= parameter. If restored =ybegin carries a
+      part= parameter, framing is contradictory; reject the article under
+      PROVIDER_FAILOVER (token MISPLACED_ENCRYPTION_HEADER).
+   c. If line 2 decrypts to neither "=ypart" nor "=yencryption":
+      Decryption has failed (e.g. wrong password or corrupt line); reject
+      under PROVIDER_FAILOVER (token CONTROL_LINE_DECRYPT_FAILURE).
+   d. For the restored =yencryption line, validate the canonical
       five-token grammar from the body standard and assert
       dual-bootstrap agreement: decoded header salt MUST match Line 1
       raw salt byte-for-byte AND decoded header index MUST match
       Line 1 segmentIndex value-for-value. An FF1 decryption error, a
-      grammar violation, a placement disagreement (a control line
-      decrypted at a position the deterministic layout does not
-      predict, or no control line where one is required), or a
-      dual-bootstrap mismatch is PROVIDER_FAILOVER.
-   c. Every physical line between the last expected header position
+      grammar violation, a placement disagreement, or a dual-bootstrap
+      mismatch is PROVIDER_FAILOVER.
+   e. Bounded file size check: if restored begin or size values are
+      >= 2^32 bytes, reject under PROVIDER_FAILOVER (token SIZE_OVERFLOW).
+   f. Every physical line between the last expected header position
       and the footer position N (that is, lineIndex D through N - 1)
       is a data line: it MUST be passed through completely untouched,
       byte for byte, including its line terminator. Data lines are
       NEVER decrypted, never trial-decrypted, and never inspected to
       locate the header/footer boundary. A data line whose bytes
-      happen to begin with "=y" remains a data line; the yEnc rule
-      that genuine control lines are recognizable by position makes
-      content-based detection unnecessary and forbidden here.
-   d. The footer is identified deterministically by position:
+      happen to begin with "=y" remains a data line; genuine control
+      lines are recognizable by position alone.
+   g. The footer is identified deterministically by position:
       the last physical line of the yEnc block (lineIndex = N) is the
       =yend footer. No content-based footer search is performed.
-   e. Out of scope for v1.2: control-only articles (control line
+   h. Out of scope for v1.2: control-only articles (control line
       encryption without body encryption), articles with custom
       control lines other than =ybegin, =ypart, =yencryption, and
       =yend, and header layouts not fixed by the restored =ybegin
@@ -434,39 +464,43 @@ default; clients MAY override it from their own sources resolved
 before fetch; a missing password after resolution is structural;
 the effective password feeds the KDF unaltered.
 
-1. Non-Retriable Structural Failures:
-   - Missing NZB provenance when transport decryption was requested.
-   - Malformed NZB XML, including a transport password that fails XML
-     parsing (no repaired or altered substitute value is permitted).
-   - No transport password available (none in the NZB and none supplied
-     to the client).
-   - A locally unsupported encryption mode or cryptographic dependency,
-     including an unsupported NZB yenc_version or yenc_cipher value
-     (Section 8) and any Argon2id parameter set other than Section 4.
+1. Non-Retriable Structural Failures (structural tier / METADATA_VALIDATION):
+   - Missing NZB provenance when transport decryption was requested (MISSING_ENCRYPTION_PROVENANCE).
+   - Malformed NZB XML or invalid provenance metadata (INVALID_ENCRYPTION_PROVENANCE).
+   - No transport password available in NZB or client configuration (MISSING_PASSWORD).
+   - Unsupported specification version (UNSUPPORTED_VERSION).
+   - Unsupported cipher suite (UNSUPPORTED_CIPHER).
+   - Unsupported Argon2id KDF parameters (UNSUPPORTED_KDF).
    Action: Abort the job without querying alternate Usenet servers.
    Output: Zero bytes of plaintext and zero bytes of ciphertext.
 
 2. Retriable Provider Corruption Failures:
-   - Restored Line 1 does not begin with =ybegin.
-   - Restored Line N does not begin with =yend.
-   - Line 1 shorter than 22 bytes (truncated bootstrap; LINE_TRUNCATED).
-   - A control line whose content is shorter than the 2-byte FF1 minimum
-     (LINE_TOO_SHORT).
-   - Zero or invalid segmentIndex in Line 1 bootstrap (ZERO_SEGMENT_INDEX).
-   - A forbidden byte (0x00, 0x0A, 0x0D) in the Line 1 salt
-     (INVALID_SALT_CHARACTER).
-   - An index containing forbidden delimiter bytes (0x0A or 0x0D) in the
-     4-byte uint32_be(segmentIndex) bootstrap field.
-   - Missing, malformed, misplaced, or duplicate yEnc control lines in the
-     fetched article at the deterministic positions, including =ypart
-     and =yencryption.
-   - An =yencryption line that violates the canonical five-token grammar or
-     contains an unsupported cipher token other than XChaCha20-Poly1305.
-   - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
-   - A fetched article in an unexpected mode (for example body-only or
-     control-only framing fetched by a combined-only receiver).
-   - Wire CRC mismatch, Poly1305 authentication failure, truncation, or other
-     article-body corruption.
+   - Restored Line 1 does not begin with =ybegin (CONTROL_LINE_DECRYPT_FAILURE).
+   - Restored Line N does not begin with =yend (CONTROL_LINE_DECRYPT_FAILURE).
+   - Line 1 shorter than 22 bytes (LINE_TRUNCATED).
+   - Control line shorter than 2-byte FF1 minimum (LINE_TOO_SHORT).
+   - Zero segmentIndex in Line 1 bootstrap (ZERO_SEGMENT_INDEX).
+   - Forbidden byte (0x00, 0x0A, 0x0D) in Line 1 salt (INVALID_SALT_CHARACTER).
+   - Delimiter byte (0x0A, 0x0D) in 4-byte uint32_be(segmentIndex) field (FORBIDDEN_SEGMENT_INDEX_BYTE).
+   - Missing, malformed, misplaced, or duplicate yEnc control lines in the fetched article at the deterministic positions, including =ypart and =yencryption.
+   - An =yencryption line that violates the canonical five-token grammar or contains an unsupported cipher token other than XChaCha20-Poly1305.
+   - Line 2 decrypts to neither =ypart nor =yencryption (CONTROL_LINE_DECRYPT_FAILURE).
+   - Line 2 is =ypart but =ybegin has no part= parameter (INVALID_MULTIPART_FRAMING).
+   - Line 2 is =yencryption but =ybegin carries part= parameter (MISPLACED_ENCRYPTION_HEADER).
+   - Whitespace defects (tabs, consecutive spaces) in =yencryption (INVALID_WHITESPACE).
+   - Invalid token count or empty tokens in =yencryption (INVALID_TOKEN_COUNT).
+   - Invalid header prefix (INVALID_PREFIX).
+   - Invalid token ordering in =yencryption (INVALID_TOKEN_ORDER).
+   - Invalid salt length or hex in =yencryption (INVALID_SALT_LENGTH, INVALID_SALT_HEX).
+   - Invalid index length or hex in =yencryption (INVALID_INDEX_LENGTH, INVALID_INDEX_HEX).
+   - Invalid tag length or hex in =yencryption (INVALID_TAG_LENGTH, INVALID_TAG_HEX).
+   - Uppercase hex in =yencryption tokens (UPPERCASE_HEX).
+   - Dual-salt mismatch between Line 1 and =yencryption (DUAL_SALT_MISMATCH).
+   - Dual-index mismatch between Line 1 and =yencryption (DUAL_INDEX_MISMATCH).
+   - File size or segment offset >= 2^32 bytes (SIZE_OVERFLOW).
+   - Wire CRC mismatch over decoded ciphertext (WIRE_CRC_MISMATCH).
+   - Poly1305 authentication tag verification failure (AUTHENTICATION_FAILURE).
+   - Article body truncation or missing bytes.
    Action: Mark the article corrupt and try an eligible alternate provider.
    After all eligible providers fail, mark the segment failed so normal repair
    policy can run.
@@ -566,6 +600,7 @@ attributes only:
 Segment identity is carried only in the article bootstrap bytes; the NZB
 carries no encryption-specific segment data and no mode metadata. The
 bytes attribute is not a cryptographic input (Body Standard Section 2.1).
+Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB bound).
 
 Producer Requirements:
 For an encrypted upload, the NZB writer MUST:
@@ -647,12 +682,12 @@ Decoupling of Presentation Metadata:
 ----------------------------------------------------------------------
 10. Example
 
-Input plaintext yEnc block:
+This example demonstrates combined mode (control line encryption and
+body encryption) using the single-part article from Section 10 of the
+yEnc Body Encryption Standard.
 
-  =ybegin line=9 size=18 name=file.bin
-  abcDEF123
-  ghiJKL456
-  =yend size=18
+Input binary data: [16 bytes: 0x48656C6C6F20576F726C642E747874FF]
+Password: "test123"
 
 Corresponding NZB 1.1 XML:
 
@@ -668,63 +703,74 @@ Corresponding NZB 1.1 XML:
       <group>alt.binaries.test</group>
     </groups>
     <segments>
-      <segment bytes="18" number="1">article-1@example.com</segment>
+      <segment bytes="16" number="1">article-1@example.com</segment>
     </segments>
   </file>
 </nzb>
 
-Here segmentIndex=1 is embedded directly in the article bootstrap prefix on Line 1.
+Cryptographic Derivations:
+- password: "test123" (UTF-8, no normalization)
+- salt: 1a2b3c4d5e6f7890abcdef1234567890 (16 raw Alphabet bytes)
+- segmentIndex: 1 (uint32_be: 0x00000001)
+- masterKey = Argon2id("test123", salt, time=1, memory=65536 KiB,
+  parallelism=4, 32-byte output, version 0x13):
+  b6777085c3fc8dc3d82f3ef78ff05f590ce0f6700c5c4e97669d2a6327d5303c
+- encKey = HMAC-SHA256(masterKey, "yenc-control encKey" || uint32_be(1))[0:32]:
+  4181a96752d5bcf3a1e2f758ba3135c36fcbce1b4a6825c3453b320db914a87a
 
-Encryption Processing:
-- Total physical lines N = 4.
-- Line 1 (lineIndex=1): "=ybegin line=9 size=18 name=file.bin" (36-byte plaintext)
-  -> FF1 encrypt with tweak derived from segmentIndex=1 and lineIndex=1 (36 bytes)
-  -> Prepend the 20-byte article bootstrap: 16-byte raw salt from Alphabet
-     followed by 4-byte uint32_be(1) (0x00 0x00 0x00 0x01)
-  -> Encrypted line 1 expands by 20 bytes: 20 bytes bootstrap + 36 bytes ciphertext = 56 bytes.
-- Line 2 (lineIndex=2): "abcDEF123" -> unchanged (data line).
-- Line 3 (lineIndex=3): "ghiJKL456" -> unchanged (data line).
-- Line 4 (lineIndex=4): "=yend size=18" (13 bytes)
-  -> FF1 encrypt with tweak derived from segmentIndex=1 and lineIndex=4 (13 bytes)
-  -> Preserves exact length: 13 bytes ciphertext.
+Wire Block Structure (Single-Part Combined Mode, 4 physical lines):
 
-Combined Mode with Body Encryption Example:
-- In combined mode, canonical 5-token =yencryption header is present at physical line 2
-  (for single-part) or physical line 3 (for multipart after =ypart):
-  =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=00000001 tag=<32_hex_chars>
-- Dual-bootstrap agreement requires raw salt and segmentIndex on Line 1 to equal
-  salt and index in =yencryption header.
+Line 1 (lineIndex=1):
+  Plaintext (38 bytes):
+    =ybegin line=128 size=16 name=file.bin
+  tweak = HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(1) || uint32_be(1))[0:8]:
+    f9ee24b07f8fe322
+  FF1 Ciphertext (38 bytes hex):
+    8265114f5401901d404853bf61452e880971cbe926d80c646f3922f6b262abb0c67f5ca82b50
+  Wire Line 1 (58 bytes = 20-byte bootstrap prefix + 38 bytes ciphertext, hex):
+    1a2b3c4d5e6f7890abcdef1234567890000000018265114f5401901d404853bf61452e880971cbe926d80c646f3922f6b262abb0c67f5ca82b50
+
+Line 2 (lineIndex=2):
+  Plaintext (128 bytes):
+    =yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695
+  tweak = HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(1) || uint32_be(2))[0:8]:
+    2c8a2a514d3f3885
+  Wire Line 2 / FF1 Ciphertext (128 bytes hex):
+    3fcc218a1965e2bb9b14dedf5ef6a7f99ad8ac60c19ff028228a7d532452117b1d399a26e36a13542f5eb3838e9f6a9c3d9b7a61b279a69bbcf9abc3d46329e9a1248cc4ff9f2a236d9c17841e184b21e484e383230773a4192247c2d991c7adca2cac114fa96e75f4c55ec107e9dc5b5873d55fc8cf4192576e38dc1eeb5cda
+
+Line 3 (lineIndex=3):
+  Untouched data line (yEnc-encoded ciphertext bytes): passes through
+  byte-for-byte; never decrypted by control line processing.
+
+Line 4 (lineIndex=4, footer):
+  Plaintext (28 bytes):
+    =yend size=16 crc32=b3185887
+  tweak = HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(1) || uint32_be(4))[0:8]:
+    3c09b307ec3c3983
+  Wire Line 4 / FF1 Ciphertext (28 bytes hex):
+    41f7c197df301ee98259af18d54858ef97ee54ccff770faedbcdbc4f
 
 Decryption Processing:
 - Line 1 (lineIndex=1):
-  * Verify line 1 length >= 22 bytes (56 bytes is valid).
-  * Extract first 16 bytes as salt.
-  * Extract next 4 bytes as uint32_be segmentIndex (value=1).
-  * Decrypt remaining 36 bytes with lineIndex=1, segmentIndex=1, and extracted salt.
-  * Result: "=ybegin line=9 size=18 name=file.bin" -> valid header, keep.
-- The restored =ybegin line carries no part= keyword, so the article is
-  single-part: the deterministic layout (Section 5 step 4) fixes the
-  header region as lines 1..2 for combined mode and the first data
-  line as lineIndex D = 3. This block is control-only, so the example
-  illustrates position bookkeeping only; see the v1.2 scope note in
-  Section 5 step 4e.
+  * Extract 16-byte raw salt and 4-byte uint32_be segmentIndex=1.
+  * Decrypt ciphertext (bytes 20..) with lineIndex=1 tweak.
+  * Restores: "=ybegin line=128 size=16 name=file.bin".
 - Line 2 (lineIndex=2):
-  * In combined mode this position would carry the =yencryption
-    header, decrypted with lineIndex=2. This control-only example
-    leaves line 2 as an untouched data line.
+  * Receiver decrypts line 2 first with lineIndex=2 tweak.
+  * Restores: "=yencryption cipher=XChaCha20-Poly1305 salt=1a2b... index=00000001 tag=24d9...".
+  * Because line 2 decrypted to =yencryption (not =ypart), this article is single-part.
+  * Verify that restored =ybegin has no part= parameter (consistent framing).
+  * Assert dual-bootstrap agreement between Line 1 and =yencryption.
 - Line 3 (lineIndex=3):
-  * Data line -> retain original "ghiJKL456" untouched (data lines
-    are never decrypted).
-- Line 4 (lineIndex=4=N):
-  * The footer is identified by position (the last physical line).
-  * Decrypt last physical line (lineIndex=4) with lineIndex=4, segmentIndex=1, and extracted salt.
-  * Result: "=yend size=18" -> valid footer.
+  * First data line (D = 3); passes through untouched to body decryption.
+- Line 4 (lineIndex=4 = N):
+  * Identified as footer by position (last physical line).
+  * Decrypt with lineIndex=4 tweak.
+  * Restores: "=yend size=16 crc32=b3185887".
 
-After decryption, the reconstructed text matches the original yEnc
-block exactly, with control lines restored and data lines unchanged.
-Overall block length increased on wire by exactly 20 bytes due to the
-bootstrap prefix prepended to line 1.
-
+After control line restoration, the receiver proceeds to body decryption,
+wire CRC check, Poly1305 authentication under Section 2.1 AAD, and downstream
+CRC normalization.
 ----------------------------------------------------------------------
 11. Summary
 

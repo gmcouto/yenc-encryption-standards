@@ -15,36 +15,29 @@ Produces canonical, machine-readable JSON fixtures for:
 import hashlib
 import hmac
 import json
-import math
-import os
-import struct
 import sys
-import xml.etree.ElementTree as ET
-import xml.sax.saxutils as saxutils
 from pathlib import Path
+from xml.sax import saxutils
 
-import argon2.low_level as ll
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-import nacl.bindings as nb
 import nacl.exceptions as ne
 
 STANDARD_VERSION = "1.2"
 GENERATED_AT = "2026-10-11T00:00:00Z"
 
 # Import the canonical reference primitives so the generator and the test
-# harness share one exact statement of the derivations (AAD, KDF, nonces).
+# harness share one exact statement of the derivations (AAD, KDF, nonces, FF1).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from yenc_enc_reference import (  # noqa: E402
-    AAD_PREFIX,
+from yenc_enc_reference import (
     body_decrypt,
     body_encrypt,
     build_aad,
     derive_body_nonce,
     derive_control_keys,
     derive_key,
-    kdf_password_bytes,
+    extract_bootstrap_from_line1,
+    ff1_decrypt,
+    ff1_encrypt,
     uint32_be,
-    uint64_be,
 )
 
 
@@ -52,235 +45,6 @@ def _write_fixture(path: Path, fixture: dict) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(fixture, f, indent=2, ensure_ascii=False)
         f.write("\n")
-
-
-# ---------------------------------------------------------------------------
-# Cryptographic Primitives & Derivations
-# ---------------------------------------------------------------------------
-
-
-def uint32_be(val: int) -> bytes:
-    """Serialize 32-bit unsigned integer in big-endian network byte order."""
-    if not (0 <= val <= 0xFFFFFFFF):
-        raise ValueError(f"Value {val} out of range for uint32_be")
-    return struct.pack(">I", val)
-
-
-def derive_key(password: str, salt: bytes) -> bytes:
-    """Derive 32-byte key using Argon2id RFC 9106 parameters."""
-    return ll.hash_secret_raw(
-        secret=password.encode("utf-8"),
-        salt=salt,
-        time_cost=1,
-        memory_cost=65536,  # 64 MiB
-        parallelism=4,
-        hash_len=32,
-        type=ll.Type.ID,
-        version=0x13,
-    )
-
-
-def derive_body_nonce(body_key: bytes, segment_index: int) -> bytes:
-    """Derive 24-byte nonce for XChaCha20-Poly1305 via 19-byte HMAC-SHA256 layout."""
-    message = b"yenc-body nonce" + uint32_be(segment_index)
-    return hmac.new(body_key, message, hashlib.sha256).digest()[:24]
-
-
-def derive_control_keys(master_key: bytes, segment_index: int, line_index: int):
-    """Derive 32-byte encKey and 8-byte tweak for FF1 control line encryption."""
-    enc_key = hmac.new(master_key, b"yenc-control key", hashlib.sha256).digest()
-    tweak_msg = b"yenc-control tweak" + uint32_be(segment_index) + uint32_be(line_index)
-    tweak = hmac.new(master_key, tweak_msg, hashlib.sha256).digest()[:8]
-    return enc_key, tweak
-
-
-def extract_bootstrap_from_line1(line1_bytes: bytes) -> tuple[bytes, int, bytes]:
-    """Extract salt (16B), uint32_be segmentIndex (4B), and ciphertext (>=2B) from Line 1."""
-    if len(line1_bytes) < 22:
-        raise ValueError("LINE_TRUNCATED")
-    salt = line1_bytes[:16]
-    for b in salt:
-        if b in (0x00, 0x0A, 0x0D):
-            raise ValueError("INVALID_SALT_CHARACTER")
-    seg_idx = struct.unpack(">I", line1_bytes[16:20])[0]
-    if seg_idx == 0:
-        raise ValueError("ZERO_SEGMENT_INDEX")
-    ciphertext = line1_bytes[20:]
-    return salt, seg_idx, ciphertext
-
-
-def validate_dual_bootstrap(line1_salt: bytes, line1_index: int, yenc_params: dict) -> bool:
-    """Verify byte-for-byte salt equality and value-for-value index equality."""
-    if line1_salt != yenc_params["salt"]:
-        raise ValueError("DUAL_SALT_MISMATCH")
-    if line1_index != yenc_params["segment_index"]:
-        raise ValueError("DUAL_INDEX_MISMATCH")
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Body AEAD: XChaCha20-Poly1305
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Control Line Numeral Bijection & NIST SP 800-38G FF1 (Radix 253)
-# ---------------------------------------------------------------------------
-
-
-def byte_to_numeral(b: int) -> int:
-    """Map byte octet to numeral 0..252 per yEnc Control Lines Standard v1.2."""
-    if 0x01 <= b <= 0x09:
-        return b - 1
-    elif b == 0x0B:
-        return 9
-    elif b == 0x0C:
-        return 10
-    elif 0x0E <= b <= 0xFF:
-        return b - 3
-    raise ValueError(f"Byte 0x{b:02x} is outside the 253-byte Alphabet (0x00, 0x0A, 0x0D forbidden)")
-
-
-def numeral_to_byte(i: int) -> int:
-    """Map numeral 0..252 back to byte octet per yEnc Control Lines Standard v1.2."""
-    if 0 <= i <= 8:
-        return i + 1
-    elif i == 9:
-        return 0x0B
-    elif i == 10:
-        return 0x0C
-    elif 11 <= i <= 252:
-        return i + 3
-    raise ValueError(f"Numeral {i} is out of range [0, 252]")
-
-
-def num_radix(numerals: list[int], radix: int) -> int:
-    res = 0
-    for n in numerals:
-        res = res * radix + n
-    return res
-
-
-def str_radix(val: int, radix: int, m: int) -> list[int]:
-    res = [0] * m
-    for i in range(m):
-        res[m - 1 - i] = val % radix
-        val //= radix
-    return res
-
-
-def cbc_mac(aes_enc, data: bytes) -> bytes:
-    block = bytes(16)
-    for i in range(0, len(data), 16):
-        chunk = data[i : i + 16]
-        xored = bytes(a ^ b for a, b in zip(block, chunk))
-        block = aes_enc(xored)
-    return block
-
-
-def ff1_encrypt_numerals(key: bytes, tweak: bytes, numerals: list[int], radix: int = 253) -> list[int]:
-    """NIST SP 800-38G FF1 Encryption over arbitrary numeral strings."""
-    backend = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
-    aes_enc = backend.update
-    n = len(numerals)
-    t = len(tweak)
-    u = n // 2
-    v = n - u
-    b = math.ceil(math.ceil(v * math.log2(radix)) / 8)
-    d = 4 * math.ceil(b / 4) + 4
-
-    p = bytearray(16)
-    p[0], p[1], p[2] = 1, 2, 1
-    p[3:6] = radix.to_bytes(3, "big")
-    p[6] = 10
-    p[7] = u % 256
-    p[8:12] = n.to_bytes(4, "big")
-    p[12:16] = t.to_bytes(4, "big")
-
-    pad_len = ((-t - b - 1) % 16 + 16) % 16
-    q_prefix = tweak + bytes(pad_len)
-
-    A = list(numerals[:u])
-    B = list(numerals[u:])
-
-    for i in range(10):
-        q = q_prefix + bytes([i]) + num_radix(B, radix).to_bytes(b, "big")
-        R = cbc_mac(aes_enc, bytes(p) + q)
-        S = bytearray(R)
-        j = 1
-        while len(S) < d:
-            j_bytes = j.to_bytes(16, "big")
-            blk = bytes(a ^ b for a, b in zip(R, j_bytes))
-            S.extend(aes_enc(blk))
-            j += 1
-        y = int.from_bytes(S[:d], "big")
-        m = u if i % 2 == 0 else v
-        c = (num_radix(A, radix) + y) % (radix**m)
-        C = str_radix(c, radix, m)
-        A = B
-        B = C
-
-    return A + B
-
-
-def ff1_decrypt_numerals(key: bytes, tweak: bytes, numerals: list[int], radix: int = 253) -> list[int]:
-    """NIST SP 800-38G FF1 Decryption over arbitrary numeral strings."""
-    backend = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
-    aes_enc = backend.update
-    n = len(numerals)
-    t = len(tweak)
-    u = n // 2
-    v = n - u
-    b = math.ceil(math.ceil(v * math.log2(radix)) / 8)
-    d = 4 * math.ceil(b / 4) + 4
-
-    p = bytearray(16)
-    p[0], p[1], p[2] = 1, 2, 1
-    p[3:6] = radix.to_bytes(3, "big")
-    p[6] = 10
-    p[7] = u % 256
-    p[8:12] = n.to_bytes(4, "big")
-    p[12:16] = t.to_bytes(4, "big")
-
-    pad_len = ((-t - b - 1) % 16 + 16) % 16
-    q_prefix = tweak + bytes(pad_len)
-
-    A = list(numerals[:u])
-    B = list(numerals[u:])
-
-    for round_idx in range(10):
-        i = 9 - round_idx
-        q = q_prefix + bytes([i]) + num_radix(A, radix).to_bytes(b, "big")
-        R = cbc_mac(aes_enc, bytes(p) + q)
-        S = bytearray(R)
-        j = 1
-        while len(S) < d:
-            j_bytes = j.to_bytes(16, "big")
-            blk = bytes(a ^ b for a, b in zip(R, j_bytes))
-            S.extend(aes_enc(blk))
-            j += 1
-        y = int.from_bytes(S[:d], "big")
-        m = u if i % 2 == 0 else v
-        c = (num_radix(B, radix) - y) % (radix**m)
-        C = str_radix(c, radix, m)
-        B = A
-        A = C
-
-    return A + B
-
-
-def ff1_encrypt(key: bytes, tweak: bytes, plaintext_bytes: bytes, radix: int = 253) -> bytes:
-    """Encrypt control line byte string using FF1 over Radix 253 Alphabet."""
-    numerals = [byte_to_numeral(b) for b in plaintext_bytes]
-    ct_numerals = ff1_encrypt_numerals(key, tweak, numerals, radix)
-    return bytes(numeral_to_byte(i) for i in ct_numerals)
-
-
-def ff1_decrypt(key: bytes, tweak: bytes, ciphertext_bytes: bytes, radix: int = 253) -> bytes:
-    """Decrypt control line byte string using FF1 over Radix 253 Alphabet."""
-    numerals = [byte_to_numeral(b) for b in ciphertext_bytes]
-    pt_numerals = ff1_decrypt_numerals(key, tweak, numerals, radix)
-    return bytes(numeral_to_byte(i) for i in pt_numerals)
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +342,7 @@ def generate_body_vectors(path: Path):
         try:
             body_decrypt(ct, tag, key, nonce, b"")
             raise AssertionError("empty AAD must fail authentication")
-        except Exception:
+        except ne.CryptoError:
             pass
 
         salt_hex_str = tc["salt_hex"].lower()
@@ -676,7 +440,7 @@ def generate_control_line_vectors(path: Path):
             "plaintext_line": "=yend size=18",
         },
         {
-            "id": "control-vec-06-line-54-yend-multipart",
+            "id": "control-vec-06-yend-multipart",
             "description": "Footer line 54 =yend multipart with pcrc32 (exact length preservation)",
             "segment_index": 1,
             "line_index": 54,
@@ -785,7 +549,42 @@ def generate_control_line_vectors(path: Path):
         }
     )
 
-    # STD-2 one-byte data article: the header/data boundary must be
+    # 54-line article: =ybegin (1), =ypart (2), =yencryption (3), 50 data lines (4..53), =yend (54)
+    art54_lines = [
+        "=ybegin part=1 total=1 line=128 size=700000 name=data.bin",
+        "=ypart begin=1 end=700000",
+        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
+    ]
+    for d in range(1, 51):
+        art54_lines.append(f"TestDataLine{d:02d}ContentUntouchedByteForBytePadding1234567890")
+    art54_lines.append("=yend size=700000 part=1 pcrc32=12345678")
+
+    art54_wire = []
+    for l_idx, line in enumerate(art54_lines, start=1):
+        if line.startswith("=y"):
+            enc_k, twk = derive_control_keys(master_key, 1, l_idx)
+            ct_b = ff1_encrypt(enc_k, twk, line.encode("ascii"))
+            if l_idx == 1:
+                art54_wire.append((salt_bytes + uint32_be(1) + ct_b).hex().lower())
+            else:
+                art54_wire.append(ct_b.hex().lower())
+        else:
+            art54_wire.append(line.encode("ascii").hex().lower())
+
+    vectors.append(
+        {
+            "id": "control-vec-08-full-article-54-lines",
+            "description": "Full 54-line article: verifies physical line counting 1..54 across header, data, and footer",
+            "password": password,
+            "salt_hex": salt_hex.lower(),
+            "segment_index": 1,
+            "total_physical_lines": 54,
+            "input_lines": art54_lines,
+            "expected_wire_lines_hex": art54_wire,
+        }
+    )
+
+    # One-byte data article: the header/data boundary must be
     # deterministic (positions inferred from =ybegin), so a one-byte data
     # line must pass through untouched and never be trial-decrypted.
     art4_one_byte_lines = [
@@ -809,7 +608,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-09-one-byte-data",
-            "description": "STD-2 one-byte data fixture: single data byte passes through untouched; no trial decryption occurs",
+            "description": "One-byte data fixture: single data byte passes through untouched; no trial decryption occurs",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -845,7 +644,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-10-exact-wrap-article-6-lines",
-            "description": "STD-2 exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched, after a valid =yencryption header at line 2",
+            "description": "Exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched, after a valid =yencryption header at line 2",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -890,11 +689,12 @@ def generate_control_line_vectors(path: Path):
         }
     )
 
-    # Single-part article whose name contains " part=": only keywords before
-    # name= decide the layout (Body Std Section 3), so =yencryption is line 2.
+    # Single-part article whose name contains "=ypart " and "part=": physical
+    # line 2 (not strings in =ybegin name=) governs layout (STD-13, D-3),
+    # so =yencryption is line 2.
     art_name_part_lines = [
-        "=ybegin line=128 size=1 name=my part=2.bin",
-        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
+        "=ybegin line=128 size=1 name=my =ypart part=2.bin",
+        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=d5582bae5bd0c8dfd2a8a477ebd4dd30",
         "F",
         "=yend size=1 crc32=16df26f1",
     ]
@@ -913,7 +713,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-12-single-part-name-contains-part",
-            "description": "Single-part article whose =ybegin name contains ' part=': only keywords before name= count, so the layout is single-part (=yencryption at line 2, D = 3)",
+            "description": "Single-part article whose =ybegin name contains '=ypart ' and 'part=': physical line 2 (not strings in =ybegin name=) governs layout, so the layout is single-part (=yencryption at line 2, D = 3)",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -925,40 +725,6 @@ def generate_control_line_vectors(path: Path):
         }
     )
 
-    # 54-line article: =ybegin (1), =ypart (2), =yencryption (3), 50 data lines (4..53), =yend (54)
-    art54_lines = [
-        "=ybegin part=1 total=1 line=128 size=700000 name=data.bin",
-        "=ypart begin=1 end=700000",
-        f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.lower()} index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
-    ]
-    for d in range(1, 51):
-        art54_lines.append(f"TestDataLine{d:02d}ContentUntouchedByteForBytePadding1234567890")
-    art54_lines.append("=yend size=700000 part=1 pcrc32=12345678")
-
-    art54_wire = []
-    for l_idx, line in enumerate(art54_lines, start=1):
-        if line.startswith("=y"):
-            enc_k, twk = derive_control_keys(master_key, 1, l_idx)
-            ct_b = ff1_encrypt(enc_k, twk, line.encode("ascii"))
-            if l_idx == 1:
-                art54_wire.append((salt_bytes + uint32_be(1) + ct_b).hex().lower())
-            else:
-                art54_wire.append(ct_b.hex().lower())
-        else:
-            art54_wire.append(line.encode("ascii").hex().lower())
-
-    vectors.append(
-        {
-            "id": "control-vec-08-full-article-54-lines",
-            "description": "Full 54-line article: verifies physical line counting 1..54 across header, data, and footer",
-            "password": password,
-            "salt_hex": salt_hex.lower(),
-            "segment_index": 1,
-            "total_physical_lines": 54,
-            "input_lines": art54_lines,
-            "expected_wire_lines_hex": art54_wire,
-        }
-    )
 
     fixture = {
         "schema_version": "1.0",
@@ -1290,6 +1056,14 @@ def generate_malformed_input_vectors(path: Path):
             "expected_error": "ZERO_SEGMENT_INDEX",
             "zero_output_required": True,
         },
+        {
+            "id": "control-syntax-07-wrong-password",
+            "category": "control_syntax",
+            "description": "Wrong password for control line decryption results in non-'=y' plaintext",
+            "wrong_password": "wrong_control_password",
+            "expected_error": "CONTROL_LINE_DECRYPT_FAILURE",
+            "zero_output_required": True,
+        },
     ]
 
     # Index framing rule: a Line 1 bootstrap whose uint32_be(segmentIndex)
@@ -1313,14 +1087,6 @@ def generate_malformed_input_vectors(path: Path):
         })
 
     vectors.extend([
-        {
-            "id": "control-syntax-07-wrong-password",
-            "category": "control_syntax",
-            "description": "Wrong password for control line decryption results in non-'=y' plaintext",
-            "wrong_password": "wrong_control_password",
-            "expected_error": "CONTROL_LINE_DECRYPT_FAILURE",
-            "zero_output_required": True,
-        },
 
         {
             "id": "metadata-01-missing-provenance",
@@ -1378,6 +1144,26 @@ def generate_malformed_input_vectors(path: Path):
             "category": "placement",
             "description": "Multipart encryption header must immediately follow =ypart",
             "line_index": 4,
+            "multipart": True,
+            "expected_error": "MISPLACED_ENCRYPTION_HEADER",
+            "zero_output_required": True,
+        },
+        {
+            "id": "placement-03-ypart-without-part-param",
+            "category": "placement",
+            "description": "Physical line 2 is =ypart but restored =ybegin has no part= parameter (C-2 contradictory framing)",
+            "has_part_on_ybegin": False,
+            "is_ypart_on_line2": True,
+            "expected_error": "INVALID_MULTIPART_FRAMING",
+            "zero_output_required": True,
+        },
+        {
+            "id": "placement-04-yencryption-line2-with-part-param",
+            "category": "placement",
+            "description": "Physical line 2 is =yencryption (single-part placement), but restored =ybegin carries a part= parameter (C-2 contradictory framing)",
+            "has_part_on_ybegin": True,
+            "is_ypart_on_line2": False,
+            "line_index": 2,
             "multipart": True,
             "expected_error": "MISPLACED_ENCRYPTION_HEADER",
             "zero_output_required": True,
@@ -1441,18 +1227,22 @@ def generate_malformed_input_vectors(path: Path):
             "id": "metadata-04-body-only-vs-combined-only",
             "category": "metadata_validation",
             "description": "Body-only-mode article (includes =yencryption line but omits Line 1 Control-Line bootstrap) presented to a combined-only receiver: mode unsupported",
-            "expected_error": "METADATA_VALIDATION_BODY_ONLY",
-            "expected_rejection_stage": "METADATA_VALIDATION",
-            "provider_failover_permitted": False,
+            "expected_error": "CONTROL_LINE_DECRYPT_FAILURE",
+            "expected_rejection_stage": "PROVIDER_FAILOVER",
+            "provider_failover_permitted": True,
             "zero_output_required": True,
         },
     ])
 
     structural_categories = {"metadata_validation"}
     for vector in vectors:
-        structural = vector["category"] in structural_categories
-        vector["expected_rejection_stage"] = "METADATA_VALIDATION" if structural else "PROVIDER_FAILOVER"
-        vector["provider_failover_permitted"] = not structural
+        if vector["id"] == "metadata-04-body-only-vs-combined-only":
+            vector["expected_rejection_stage"] = "PROVIDER_FAILOVER"
+            vector["provider_failover_permitted"] = True
+        else:
+            structural = vector["category"] in structural_categories
+            vector["expected_rejection_stage"] = "METADATA_VALIDATION" if structural else "PROVIDER_FAILOVER"
+            vector["provider_failover_permitted"] = not structural
 
     fixture = {
         "schema_version": "1.0",
@@ -1526,7 +1316,7 @@ def _seg(bytes_: int, number: int, message_id: str) -> dict:
 
 
 def generate_nzb_segment_identity_vectors(path: Path):
-    """Generate plain NZB 1.1 fixtures for self-describing article identity (VEC-06)."""
+    """Generate plain NZB 1.1 fixtures for self-describing article identity."""
     vectors = []
 
     # -------------------------------------------------------------------------
@@ -1784,7 +1574,7 @@ def next_permitted_segment_index(candidate: int) -> int:
 
 
 def generate_index_allocation_vectors(path: Path):
-    """Generate uploader segmentIndex allocation skip vectors (VEC-07)."""
+    """Generate uploader segmentIndex allocation skip vectors."""
     cases = [
         ("index-allocation-01-skip-10", 10,
          "Candidate segmentIndex 10 (uint32_be 0x0000000A contains 0x0A) is forbidden; uploader assigns the next permitted index 11"),
@@ -1825,31 +1615,31 @@ def generate_manifest(output_dir: Path):
     """Generate manifest.json with SHA-256 hashes and vector counts."""
     files_meta = {
         "argon2id.json": {
-            "description": "RFC 9106 Argon2id key derivation test vectors (VEC-01)",
+            "description": "RFC 9106 Argon2id key derivation test vectors",
             "requirement": "VEC-01",
         },
         "nonce_tweak.json": {
-            "description": "HMAC-SHA256 nonce and tweak derivation test vectors (VEC-02)",
+            "description": "HMAC-SHA256 nonce and tweak derivation test vectors",
             "requirement": "VEC-02",
         },
         "body_encryption.json": {
-            "description": "RFC 8439 Extended XChaCha20-Poly1305 body encryption round-trip vectors (VEC-03)",
+            "description": "RFC 8439 Extended XChaCha20-Poly1305 body encryption round-trip vectors",
             "requirement": "VEC-03",
         },
         "control_line_encryption.json": {
-            "description": "NIST SP 800-38G FF1 control-line encryption round-trip vectors (VEC-04)",
+            "description": "NIST SP 800-38G FF1 control-line encryption round-trip vectors",
             "requirement": "VEC-04",
         },
         "malformed_inputs.json": {
-            "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors (VEC-05)",
+            "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors",
             "requirement": "VEC-05",
         },
         "nzb_segment_identity.json": {
-            "description": "NZB 1.1 parsing, self-describing article identity, and compatibility vectors (VEC-06)",
+            "description": "NZB 1.1 parsing, self-describing article identity, and compatibility vectors",
             "requirement": "VEC-06",
         },
         "index_allocation.json": {
-            "description": "Uploader segmentIndex allocation skip vectors (VEC-07)",
+            "description": "Uploader segmentIndex allocation skip vectors",
             "requirement": "VEC-07",
         },
     }

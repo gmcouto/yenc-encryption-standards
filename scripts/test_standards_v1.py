@@ -2,12 +2,12 @@
 """Automated specification validation test harness for yEnc encryption standards v1.2.
 
 Tests conformance against:
-- BOOTSTRAP-SPEC-01: Control line 20-byte bootstrap prefix and 5-token canonical grammar
-- BOOTSTRAP-SPEC-02: Standard NZB 1.1 segments with identity carried in article bytes
-- SPEC-01: Control line bootstrap carriage and length preservation rules
-- SPEC-02: 1-based physical lineIndex counting and 253-byte alphabet numeral bijection
-- SPEC-03: Big-endian uint32_be integer serialization in HMAC-SHA256 derivations
-- SPEC-04: Specification version v1.2, metadata headers, and synchronized documentation
+- Control line 20-byte bootstrap prefix and 5-token canonical grammar
+- Standard NZB 1.1 segments with identity carried in article bytes
+- Control line bootstrap carriage and length preservation rules
+- 1-based physical lineIndex counting and 253-byte alphabet numeral bijection
+- Big-endian uint32_be integer serialization in HMAC-SHA256 derivations
+- Specification version v1.2, metadata headers, and synchronized documentation
 """
 
 import re
@@ -20,10 +20,9 @@ class TestStandardsV1(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.repo_root = Path(__file__).resolve().parent.parent
-        cls.standards_dir = cls.repo_root / "yenc-encryption-standards"
-        if not cls.standards_dir.exists() or not (cls.standards_dir / "yEnc Body Encryption Standard.txt").exists():
-            cls.standards_dir = cls.repo_root
+        cls.standards_dir = Path(__file__).resolve().parent.parent
+        if (cls.standards_dir / "yenc-encryption-standards").is_dir():
+            cls.standards_dir = cls.standards_dir / "yenc-encryption-standards"
         cls.body_spec_path = cls.standards_dir / "yEnc Body Encryption Standard.txt"
         cls.control_spec_path = cls.standards_dir / "yEnc Control Lines Encryption Standard.txt"
         cls.readme_path = cls.standards_dir / "README.md"
@@ -43,6 +42,13 @@ class TestStandardsV1(unittest.TestCase):
         else:
             cls.readme = ""
 
+    def test_encrypted_name_and_crc_are_required(self):
+        self.assertIn("name parameter MUST be present and non-empty", self.body_spec)
+        self.assertIn("MUST contain pcrc32 for multipart articles or crc32", self.body_spec)
+        self.assertIn("A missing or invalid applicable CRC fails under", self.body_spec)
+        self.assertIn("PROVIDER_FAILOVER before AEAD authentication", self.body_spec)
+        self.assertIn("non-empty `name=`", self.readme)
+
     def test_spec_environment(self):
         """Verify that all three specification files exist and contain non-empty UTF-8 text."""
         self.assertTrue(self.body_spec_path.is_file(), f"Missing {self.body_spec_path}")
@@ -59,7 +65,7 @@ class TestStandardsV1(unittest.TestCase):
             self.assertEqual(set(re.findall(r"(\w+)=", attrs)), {"bytes", "number"}, attrs)
 
     def test_spec01_salt_carriage(self):
-        """Verify SPEC-01 and BOOTSTRAP-SPEC-01: 20-byte prepended bootstrap on line 1, length properties, and removal of stale text."""
+        """Verify 20-byte prepended bootstrap on line 1, length properties, and removal of stale text."""
         # Must mandate 20-byte prepended bootstrap prefix on line 1
         self.assertRegex(self.control_spec, r"prepend the 20-byte (?:article )?bootstrap")
 
@@ -91,7 +97,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertNotIn("Overall yEnc block length is preserved exactly", self.control_spec)
 
     def test_spec02_line_index_rules(self):
-        """Verify SPEC-02: 1-based physical line counting, 253-byte alphabet numeral bijection."""
+        """Verify 1-based physical line counting, 253-byte alphabet numeral bijection."""
         # Must define lineIndex as 1-based physical line number across all lines
         self.assertIn("1-based", self.control_spec)
         self.assertIn("physical line", self.control_spec)
@@ -117,7 +123,7 @@ class TestStandardsV1(unittest.TestCase):
         )
 
     def test_spec03_control_endianness(self):
-        """Verify SPEC-03 for control lines: uint32_be big-endian serialization in tweak derivation."""
+        """Verify uint32_be big-endian serialization in tweak derivation."""
         self.assertIn("uint32_be", self.control_spec)
         self.assertRegex(self.control_spec, r"big-endian|network byte order")
 
@@ -131,14 +137,14 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIn("yenc-control key", self.control_spec)
 
     def test_spec03_endianness_specified(self):
-        """Verify SPEC-03 across all specs: 4-byte big-endian (uint32_be) integer serialization."""
+        """Verify 4-byte big-endian (uint32_be) integer serialization."""
         self.assertIn("uint32_be", self.body_spec)
         self.assertIn("uint32_be", self.control_spec)
         self.assertRegex(self.body_spec, r"big-endian|network byte order")
         self.assertRegex(self.control_spec, r"big-endian|network byte order")
 
     def test_spec04_control_version(self):
-        """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for control lines: Version 1.2, experimental wire contract, updated date, and Change Log."""
+        """Verify Version 1.2, experimental wire contract, updated date, and Change Log."""
         self.assertIn("SPECIFICATION: yEnc Control Lines Encryption Standard", self.control_spec)
         self.assertIn("Version: 1.2", self.control_spec)
         self.assertRegex(self.control_spec, r"Date:\s+2026-10-10")
@@ -147,7 +153,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIn("Version 1.2 (2026-10-10):", self.control_spec)
 
     def test_spec04_body_version(self):
-        """Verify SPEC-04 and BOOTSTRAP-SPEC-01 for body encryption: Version 1.2, experimental wire contract, updated date, and Change Log."""
+        """Verify Version 1.2, experimental wire contract, updated date, and Change Log."""
         self.assertIn("SPECIFICATION: yEnc Body Encryption Standard", self.body_spec)
         self.assertIn("Version: 1.2", self.body_spec)
         self.assertRegex(self.body_spec, r"Date:\s+2026-10-10")
@@ -156,7 +162,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIn("Version 1.2 (2026-10-10):", self.body_spec)
 
     def test_spec04_version_frozen(self):
-        """Verify SPEC-04 across all specs: Version 1.2, experimental wire contract, updated date, and Change Log."""
+        """Verify Version 1.2, experimental wire contract, updated date, and Change Log."""
         for spec_text in (self.body_spec, self.control_spec):
             self.assertIn("Version: 1.2", spec_text)
             self.assertIn("Status: Experimental Wire Contract (v1.2)", spec_text)
@@ -164,14 +170,14 @@ class TestStandardsV1(unittest.TestCase):
             self.assertIn("Version 1.2 (2026-10-10):", spec_text)
 
     def test_spec04_readme_synchronized(self):
-        """Verify SPEC-04 README synchronization: status badge and no obsolete deterministic salt text."""
+        """Verify README synchronization: status badge and no obsolete deterministic salt text."""
         self.assertNotIn("(deterministic)", self.readme)
         self.assertIn("v1.2 Experimental", self.readme)
 
     def test_spec05_nzb_segment_index_extension(self):
-        """Verify BOOTSTRAP-SPEC-02: Section 8 requires standard NZB 1.1 segments with identity in article bytes."""
+        """Verify Section 8 requires standard NZB 1.1 segments with identity in article bytes."""
         for spec in (self.body_spec, self.control_spec):
-            sec8_match = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability)", spec, re.S)
+            sec8_match = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability)", spec, re.DOTALL)
             self.assertIsNotNone(sec8_match)
             sec8 = sec8_match.group(0)
             self.assertIn('<meta type="password">', sec8)
@@ -184,70 +190,70 @@ class TestStandardsV1(unittest.TestCase):
             self.assertIn("1..=4294967295", spec)
 
     def test_spec05_nzb_identity_control(self):
-        """Verify REQ-11-02 and BOOTSTRAP-SPEC-02 for control lines: segmentIndex in Section 2, 3, 4, 5, 8, and 10 with standard NZB 1.1."""
-        sec2 = re.search(r"2\. Definitions.*?(?=3\. Processing Procedure)", self.control_spec, re.S)
+        """Verify segmentIndex in Section 2, 3, 4, 5, 8, and 10 with standard NZB 1.1."""
+        sec2 = re.search(r"2\. Definitions.*?(?=3\. Processing Procedure)", self.control_spec, re.DOTALL)
         self.assertIsNotNone(sec2)
         self.assertIn("segmentIndex", sec2.group(0))
         self.assertIn("1..=4294967295", sec2.group(0))
 
-        sec3 = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.control_spec, re.S)
+        sec3 = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.control_spec, re.DOTALL)
         self.assertIsNotNone(sec3)
         self.assertIn("segmentIndex", sec3.group(0))
 
-        sec4 = re.search(r"4\. Encryption Algorithm.*?(?=5\. Decryption(?: and Error Handling| Algorithm))", self.control_spec, re.S)
+        sec4 = re.search(r"4\. Encryption Algorithm.*?(?=5\. Decryption(?: and Error Handling| Algorithm))", self.control_spec, re.DOTALL)
         self.assertIsNotNone(sec4)
         self.assertIn("uint32_be(segmentIndex)", sec4.group(0))
 
-        sec5 = re.search(r"5\. Decryption(?: Algorithm| and Error Handling).*?(?=6\. Length Properties)", self.control_spec, re.S)
+        sec5 = re.search(r"5\. Decryption(?: Algorithm| and Error Handling).*?(?=6\. Length Properties)", self.control_spec, re.DOTALL)
         self.assertIsNotNone(sec5)
         self.assertIn("segmentIndex", sec5.group(0))
 
-        sec8 = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", self.control_spec, re.S)
+        sec8 = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", self.control_spec, re.DOTALL)
         self.assertIsNotNone(sec8)
         self.assertIn("segmentIndex", sec8.group(0))
         self.assertIn("<segment", sec8.group(0))
         self.assert_plain_segments(sec8.group(0))
 
-        sec10 = re.search(r"10\. Example.*?(?=11\. Summary)", self.control_spec, re.S)
+        sec10 = re.search(r"10\. Example.*?(?=11\. Summary)", self.control_spec, re.DOTALL)
         self.assertIsNotNone(sec10)
         self.assertIn("segmentIndex", sec10.group(0))
         self.assert_plain_segments(sec10.group(0))
 
     def test_spec05_nzb_identity_body(self):
-        """Verify REQ-11-02 and BOOTSTRAP-SPEC-02 for body encryption: segmentIndex in Section 2, 3, 4, 5, 8, 10, zero-output."""
-        sec2 = re.search(r"2\. Definitions.*?(?=3\. Processing Procedure)", self.body_spec, re.S)
+        """Verify segmentIndex in Section 2, 3, 4, 5, 8, 10, zero-output."""
+        sec2 = re.search(r"2\. Definitions.*?(?=3\. Processing Procedure)", self.body_spec, re.DOTALL)
         self.assertIsNotNone(sec2)
         self.assertIn("segmentIndex", sec2.group(0))
         self.assertIn("1..=4294967295", sec2.group(0))
 
-        sec3 = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.body_spec, re.S)
+        sec3 = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.body_spec, re.DOTALL)
         self.assertIsNotNone(sec3)
         self.assertIn("segmentIndex", sec3.group(0))
 
-        sec4 = re.search(r"4\. Encryption Algorithm.*?(?=5\. Decryption(?: and Error Handling| Algorithm))", self.body_spec, re.S)
+        sec4 = re.search(r"4\. Encryption Algorithm.*?(?=5\. Decryption(?: and Error Handling| Algorithm))", self.body_spec, re.DOTALL)
         self.assertIsNotNone(sec4)
         self.assertIn("uint32_be(segmentIndex)", sec4.group(0))
 
-        sec5 = re.search(r"5\. Decryption(?: Algorithm| and Error Handling).*?(?=6\. Length Properties)", self.body_spec, re.S)
+        sec5 = re.search(r"5\. Decryption(?: Algorithm| and Error Handling).*?(?=6\. Length Properties)", self.body_spec, re.DOTALL)
         self.assertIsNotNone(sec5)
         self.assertIn("segmentIndex", sec5.group(0))
         self.assertIn("Poly1305 authentication tag verification failure", sec5.group(0))
 
-        sec8 = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", self.body_spec, re.S)
+        sec8 = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", self.body_spec, re.DOTALL)
         self.assertIsNotNone(sec8)
         self.assertIn("segmentIndex", sec8.group(0))
         self.assertIn("<segment", sec8.group(0))
         self.assert_plain_segments(sec8.group(0))
 
-        sec10 = re.search(r"10\. Example.*?(?=11\. Summary)", self.body_spec, re.S)
+        sec10 = re.search(r"10\. Example.*?(?=11\. Summary)", self.body_spec, re.DOTALL)
         self.assertIsNotNone(sec10)
         self.assertIn("segmentIndex", sec10.group(0))
         self.assert_plain_segments(sec10.group(0))
 
     def test_spec05_producer_consumer_rules(self):
-        """Verify BOOTSTRAP-SPEC-02: producer/consumer obligations in Section 8 of both specifications for standard NZB 1.1."""
+        """Verify producer/consumer obligations in Section 8 of both specifications for standard NZB 1.1."""
         for spec in (self.body_spec, self.control_spec):
-            sec8_match = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", spec, re.S)
+            sec8_match = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability(?: & Transport)? (?:Notes|Considerations))", spec, re.DOTALL)
             self.assertIsNotNone(sec8_match)
             sec8 = sec8_match.group(0)
 
@@ -263,7 +269,7 @@ class TestStandardsV1(unittest.TestCase):
             self.assertRegex(sec8, r"XML (?:file|segment) order.*?no cryptographic meaning")
 
     def test_spec05_spec_sections_updated(self):
-        """Verify REQ-11-02: Sections 2, 3, 4, 5, 8, and 10 exist and contain explicit segmentIndex references."""
+        """Verify Sections 2, 3, 4, 5, 8, and 10 exist and contain explicit segmentIndex references."""
         for spec in (self.body_spec, self.control_spec):
             for sec_num, sec_title, next_sec in [
                 ("2", "Definitions", "3. Processing Procedure"),
@@ -274,7 +280,7 @@ class TestStandardsV1(unittest.TestCase):
                 ("10", "Example", "11. Summary"),
             ]:
                 pattern = rf"{sec_num}\.\s+{sec_title}.*?(?={re.escape(next_sec)})"
-                sec_match = re.search(pattern, spec, re.S)
+                sec_match = re.search(pattern, spec, re.DOTALL)
                 self.assertIsNotNone(sec_match, f"Missing Section {sec_num} in specification")
                 self.assertIn(
                     "segmentIndex",
@@ -283,7 +289,7 @@ class TestStandardsV1(unittest.TestCase):
                 )
 
     def test_spec05_readme_sync(self):
-        """Verify REQ-11-03 and BOOTSTRAP-SPEC-02: README synchronization with segmentIndex, 1..=4294967295, and standard NZB 1.1."""
+        """Verify README synchronization with segmentIndex, 1..=4294967295, and standard NZB 1.1."""
         self.assertIn("segmentIndex", self.readme)
         self.assertIn("1..=4294967295", self.readme)
         self.assertIn("v1.2 Experimental", self.readme)
@@ -291,7 +297,7 @@ class TestStandardsV1(unittest.TestCase):
     def test_spec06_provenance_and_archive_password_schema(self):
         """Verify encrypted transport provenance is explicit and archive passwords stay decoupled."""
         for name, spec in (("body", self.body_spec), ("control", self.control_spec)):
-            section = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability)", spec, re.S)
+            section = re.search(r"8\. NZB File Requirements.*?(?=9\. Interoperability)", spec, re.DOTALL)
             self.assertIsNotNone(section, f"Missing NZB requirements section in {name} standard")
             text = section.group(0)
             self.assertIn('<meta type="yenc_encrypted">true</meta>', text)
@@ -304,8 +310,8 @@ class TestStandardsV1(unittest.TestCase):
 
     def test_spec07_body_wire_contract(self):
         """Verify body grammar, placement, salts, CRC normalization, and error tiers in scoped sections."""
-        procedure = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.body_spec, re.S).group(0)
-        decryption = re.search(r"5\. Decryption.*?(?=6\. Length Properties)", self.body_spec, re.S).group(0)
+        procedure = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.body_spec, re.DOTALL).group(0)
+        decryption = re.search(r"5\. Decryption.*?(?=6\. Length Properties)", self.body_spec, re.DOTALL).group(0)
         self.assertRegex(procedure, r"line 2.*=yencryption|=yencryption.*line 2")
         self.assertIn("line 3", procedure)
         self.assertIn("five tokens", decryption)
@@ -319,8 +325,8 @@ class TestStandardsV1(unittest.TestCase):
 
     def test_spec07_control_wire_contract(self):
         """Verify control-line salt, placement, failure, and identity rules in scoped sections."""
-        procedure = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.control_spec, re.S).group(0)
-        decryption = re.search(r"5\. Decryption.*?(?=6\. Length Properties)", self.control_spec, re.S).group(0)
+        procedure = re.search(r"3\. Processing Procedure.*?(?=4\. Encryption Algorithm)", self.control_spec, re.DOTALL).group(0)
+        decryption = re.search(r"5\. Decryption.*?(?=6\. Length Properties)", self.control_spec, re.DOTALL).group(0)
         self.assertIn("dot-unstuffing", procedure)
         self.assertRegex(decryption, r"(?i)dual-bootstrap|dual-salt")
         self.assertIn("five-token grammar", decryption)
@@ -331,7 +337,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertIn("no cryptographic meaning", self.control_spec)
 
     def test_spec07_canonical_yencryption_grammar(self):
-        """Verify BOOTSTRAP-SPEC-01: canonical 5-token wire grammar and synchronized references."""
+        """Verify canonical 5-token wire grammar and synchronized references."""
         abnf = (
             'yencryption = "=yencryption" SP\n'
             '                  "cipher=XChaCha20-Poly1305" SP\n'
@@ -357,7 +363,7 @@ class TestStandardsV1(unittest.TestCase):
     def test_spec07_error_tiers_are_source_based(self):
         """Verify article syntax defects cannot overlap structural metadata errors."""
         for spec in (self.body_spec, self.control_spec):
-            decryption = re.search(r"5\. Decryption.*?(?=6\. Length Properties)", spec, re.S).group(0)
+            decryption = re.search(r"5\. Decryption.*?(?=6\. Length Properties)", spec, re.DOTALL).group(0)
             structural, provider = decryption.split("2. Retriable Provider Corruption Failures:", 1)
             self.assertIn("Malformed NZB XML", structural)
             self.assertNotIn("Malformed =yencryption", structural)
@@ -380,7 +386,7 @@ class TestStandardsV1(unittest.TestCase):
         self.assertNotIn("~750KB to 2MB", self.readme)
 
     def test_spec05_humanizer_checks(self):
-        """Verify REQ-11-05: absence of em dashes and en dashes in specification files."""
+        """Verify absence of em dashes and en dashes in specification files."""
         for path, text in (
             (self.body_spec_path, self.body_spec),
             (self.control_spec_path, self.control_spec),
@@ -388,6 +394,52 @@ class TestStandardsV1(unittest.TestCase):
         ):
             self.assertNotIn("\u2014", text, f"Em dash found in {path.name}")
             self.assertNotIn("\u2013", text, f"En dash found in {path.name}")
+
+
+    def test_spec_agreement(self):
+        """Verify cross-specification agreement on constants, wire format, placement, and error handling."""
+        # 1. Version 1.2
+        self.assertIn("Version: 1.2", self.body_spec)
+        self.assertIn("Version: 1.2", self.control_spec)
+
+        # 2. Canonical five-token header wire form
+        header_wire = "=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>"
+        self.assertIn(header_wire, self.body_spec)
+        self.assertIn(header_wire, self.control_spec)
+        self.assertIn(header_wire, self.readme)
+
+        # 3. Deterministic header placement: line 2 single-part, line 3 multipart
+        self.assertIn("line 2", self.body_spec)
+        self.assertIn("line 3", self.body_spec)
+        self.assertIn("line 2", self.control_spec)
+        self.assertIn("line 3", self.control_spec)
+
+        # 4. KDF parameters (Argon2id, time=1, memory=65536 KiB, parallelism=4, 32-byte output, v=19)
+        for spec in (self.body_spec, self.control_spec):
+            self.assertIn("Argon2id", spec)
+            self.assertIn("time=1", spec)
+            self.assertRegex(spec, r"memory=(?:65536\s*KiB|64\s*MB)")
+            self.assertRegex(spec, r"parallelism=4|threads=4")
+            self.assertRegex(spec, r"32-byte output|256-bit output")
+            self.assertIn("0x13", spec)
+
+        # 5. Dual-bootstrap agreement & 253-byte Alphabet (no 0x00, 0x0A, 0x0D)
+        for spec in (self.body_spec, self.control_spec):
+            self.assertIn("Dual-Bootstrap Agreement", spec)
+            self.assertIn("253-byte Alphabet", spec)
+            self.assertIn("0x00", spec)
+            self.assertIn("0x0A", spec)
+            self.assertIn("0x0D", spec)
+
+        # 6. Two-tier error classification
+        for spec in (self.body_spec, self.control_spec):
+            self.assertIn("METADATA_VALIDATION", spec)
+            self.assertIn("PROVIDER_FAILOVER", spec)
+            self.assertIn("zero output", spec.lower())
+
+        # 7. Four-GiB file size bound (< 2^32 bytes)
+        for spec in (self.body_spec, self.control_spec, self.readme):
+            self.assertRegex(spec, r"(?i)2\^32\s+bytes|four-GiB bound|4\s*GiB")
 
 
 if __name__ == "__main__":
