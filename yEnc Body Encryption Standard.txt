@@ -18,17 +18,8 @@ integrity, and position-bound authenticity of the transmitted data.
 Change Log:
 
 Version 1.2 (2026-10-10):
-- Prose corrections: the Control standard's structural "unsupported cipher
-  suite" entry now applies only to NZB metadata or local configuration
-  validated before fetch, matching the Body standard's local-vs-fetched
-  classification; the Body standard's Section 10 example headings now
-  describe restored yEnc blocks rather than wire blocks; a leftover
-  conditional "dual-encrypted mode" qualifier was removed (v1.2 defines
-  combined mode only); and the Control standard's step 7 now states the
-  Body-mandated order (wire CRC over ciphertext before AEAD
-  authentication).
-- Clarified that encrypted names are present and non-empty, and the applicable
-  ciphertext CRC is mandatory; violations are PROVIDER_FAILOVER.
+- Encrypted articles carry a present, non-empty name= and the applicable
+  ciphertext CRC; violations are PROVIDER_FAILOVER (Sections 2.1 and 5).
 - AEAD associated data (AAD): each body encryption binds exact assembly
   metadata as the XChaCha20-Poly1305 associated data, in this exact byte
   layout (2.1), computed after dot-unstuffing: ASCII prefix "yenc-body
@@ -42,8 +33,7 @@ Version 1.2 (2026-10-10):
   restored =ybegin line for multipart articles, or 1 for single-part
   articles.
 - Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB
-  bound); producers refuse larger files and receivers treat >= 2^32 as
-  PROVIDER_FAILOVER.
+  bound; Section 2.1).
 - Version 1.2 defines combined mode only (control line encryption and
   body encryption together); other framing modes are reserved for
   future standards.
@@ -55,14 +45,16 @@ Version 1.2 (2026-10-10):
   encrypted multipart article (or on any other part); receivers ignore
   it if present. Each part carries pcrc32 over its ciphertext, and
   authentication covers integrity, so no plaintext fingerprint is
-  published. Single-part articles keep crc32 over ciphertext.
+  published. Single-part articles keep crc32 over ciphertext. The
+  pcrc32 and crc32 values are hexadecimal CRC-32 strings of any width
+  accepted by ordinary yEnc parsing; a non-hexadecimal value is
+  PROVIDER_FAILOVER.
 - Error tiers are classified by the input that failed validation:
   NZB metadata and local configuration validated before fetch are
   structural (METADATA_VALIDATION); bytes in a fetched article are
-  provider corruption (PROVIDER_FAILOVER). The NZB carries no mode
-  metadata, so a body-only article at a combined-only receiver is
-  provider corruption, as is an unsupported wire cipher token
-  (Section 5).
+  provider corruption (PROVIDER_FAILOVER). An encrypted article at a
+  receiver that cannot restore its framing is provider corruption, as
+  is an unsupported wire cipher token (Section 5).
 - Each article identifies itself. The =yencryption line carries five
   tokens (=yencryption, cipher, salt, index, tag) in strict lowercase hex, is exactly
   128 characters long, and sits at physical line 2 (single-part) or
@@ -85,7 +77,9 @@ Version 1.2 (2026-10-10):
   compare it. Metadata values are defined: yenc_encrypted "true" and
   yenc_cipher "XChaCha20-Poly1305" match ASCII case-insensitively,
   yenc_version "1.2" matches exactly, all after trimming surrounding
-  whitespace. Other yenc_version or yenc_cipher values fail closed.
+  whitespace. An absent entry is allowed; an entry that is present
+  with an empty value, or any other non-matching yenc_version or
+  yenc_cipher value, fails closed (METADATA_VALIDATION).
   <meta type="password"> is the interoperable password carrier;
   clients may also use their own password sources.
 - Decoding: the wire CRC covers ciphertext and is checked before
@@ -95,7 +89,10 @@ Version 1.2 (2026-10-10):
 - Transport: dot-stuffing per RFC 3977, 1-based line counting after
   dot-unstuffing, CRLF emitted and bare LF accepted, memory bounded to
   one article. In an ARTICLE response the yEnc block starts after the
-  blank line that ends the article headers.
+  blank line that ends the article headers. A receiver MAY fetch with
+  BODY only and reject an ARTICLE response under PROVIDER_FAILOVER.
+  For a file that fits in one segment the uploader chooses single-part
+  or one-part multipart framing; both are conformant (Sections 4, 9).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -162,8 +159,7 @@ and transport integrity are required across Usenet distribution networks.
 
   segmentIndex:
     An unsigned 32-bit integer in the range 1..=4294967295 carried
-    in the article bootstrap. Version 1.2 defines combined mode only
-    (other modes are reserved); the value appears both as the
+    in the article bootstrap. The value appears both as the
     index parameter of =yencryption and as bytes 16..19 of the Line 1
     prefix. It provides unique nonce values for every segment across
     the upload session without file-boundary arithmetic or NZB XML
@@ -265,8 +261,6 @@ Serialization rules:
 - The AAD is always non-empty: the fixed 33-byte prefix plus at least
   one subject byte. An empty AAD input to encryption or decryption is
   a contract violation and MUST fail authentication.
-- Filenames longer than 4294967295 bytes cannot be serialized; such
-  input is out of scope for this experimental standard.
 
 Worked example (the Section 10 example): name=file.bin,
 partNumber=1, partBegin=1, segmentBytes=16. The AAD is:
@@ -328,8 +322,7 @@ line 2 is =ypart without part= on =ybegin, or line 2 is =yencryption
 when =ybegin carries part=) is corrupt framing and MUST fail under
 PROVIDER_FAILOVER.
 
-Article bootstrap layout: Version 1.2 defines combined mode only (other
-modes are reserved). The Line 1 prefix is a fixed 20-byte sequence,
+Article bootstrap layout: The Line 1 prefix is a fixed 20-byte sequence,
 16 raw salt bytes at offsets 0..15 followed by uint32_be(segmentIndex)
 at offsets 16..19 (the exact layout defined by the control lines
 standard). The same salt value is what the =yencryption salt parameter
@@ -355,8 +348,7 @@ Parameters:
   - Salt: 16-byte random value drawn from the control standard's
     253-byte Alphabet (generated via cryptographically secure RNG):
     every salt byte MUST differ from 0x00, 0x0A, and 0x0D so that the
-    byte-for-byte dual-bootstrap equality is satisfied (Version 1.2
-    defines combined mode only; other modes are reserved). A producer
+    byte-for-byte dual-bootstrap equality is satisfied. A producer
     that samples a forbidden byte for the salt cannot satisfy both
     standards and MUST resample.
   - File Size: Encrypted files MUST be strictly smaller than 2^32 bytes
@@ -474,7 +466,11 @@ lowercase only, and consumers MUST reject uppercase digits as a grammar
 violation.
 
 A yEnc block is multipart if and only if physical line 2 after =ybegin
-is =ypart; otherwise it is single-part. Single-part yEnc blocks
+is =ypart; otherwise it is single-part. For a file that fits in one
+segment, the uploader MAY emit either a single-part block or a
+one-part multipart block (=ybegin part=1 total=1 with =ypart); both
+are conformant, and the receiver derives the framing from physical
+line 2 either way. Single-part yEnc blocks
 MUST place =yencryption at physical line 2 immediately
 after =ybegin. Multipart yEnc blocks MUST place =ypart at physical line 2 and
 =yencryption at physical line 3 immediately after =ypart. A consumer MUST
@@ -526,6 +522,10 @@ Decryption Processing:
    PROVIDER_FAILOVER before AEAD authentication. Verify that CRC against
    ciphertext bytes. The wire
    CRC is computed over the decoded ciphertext bytes, never over plaintext.
+   As in ordinary yEnc, the CRC value is a hexadecimal string of any
+   width that parses as a CRC-32 value; it need not be zero-padded to
+   eight digits. A value that is not hexadecimal, or larger than
+   0xffffffff, is invalid.
    A multipart =yend carries only pcrc32: producers MUST NOT emit a
    whole-file crc32 on any part of an encrypted multipart article,
    including the last, and receivers ignore one if present.
@@ -566,20 +566,18 @@ on when or whether the mode was locally announced.
 
 Mode and cipher validation:
 
-- Locally configured unsupported mode or unsupported cryptographic
-  dependency: structural (METADATA_VALIDATION). This includes the
-  locally unsupported encryption mode itself and a locally unsupported
-  Argon2id parameter set (Section 4); it is detected from
-  configuration before any network work.
+- A locally unsupported cryptographic dependency: structural
+  (METADATA_VALIDATION). This includes a locally unsupported Argon2id
+  parameter set (Section 4); it is detected from configuration before
+  any network work.
 - Unsupported yenc_version or yenc_cipher NZB metadata when the client
   consumes encryption: structural (METADATA_VALIDATION), per Section 8.
 - An article fetched from a provider that turns out to carry an
-  unexpected mode (for example a body-only article fetched where the
-  provenance-gated dispatch expected combined-mode framing, or a
-  control line the receiver cannot restore with its supported
-  standards): provider corruption (PROVIDER_FAILOVER). The article
-  bytes are defective relative to the receiver's supported contract,
-  so another provider may serve a correct copy.
+  unexpected framing (for example an article whose restored structure
+  the receiver cannot parse under this standard): provider corruption
+  (PROVIDER_FAILOVER). The article bytes are defective relative to the
+  receiver's supported contract, so another provider may serve a
+  correct copy.
 - An unsupported cipher token inside a fetched =yencryption line:
   provider corruption (PROVIDER_FAILOVER).
 
@@ -594,13 +592,13 @@ with no alteration.
 
 Combined-only interoperability: Version 1.2 defines combined mode only
 (control line encryption and body encryption together); other framing
-modes are reserved for future standards. v1.2 producers MUST emit
-combined mode only; producers MUST NOT emit body-only or control-only
-articles. v1.2 receivers MUST support combined mode and MUST reject
-articles in other modes under PROVIDER_FAILOVER. The NZB carries no
-mode metadata, so the mode is discovered only in the fetched article
-bytes and the rejection is provider corruption (PROVIDER_FAILOVER). A
-client MUST NOT invent NZB mode metadata to classify it earlier.
+modes are reserved for future standards (Section 1). v1.2 producers MUST
+emit combined mode only; producers MUST NOT emit body-only or
+control-only articles. v1.2 receivers MUST support combined mode and
+MUST reject articles in other modes under PROVIDER_FAILOVER. The NZB
+carries no mode metadata, so the mode is discovered only in the fetched
+article bytes and the rejection is provider corruption
+(PROVIDER_FAILOVER).
 
 1. Non-Retriable Structural Failures:
    - Missing NZB provenance when transport decryption was requested.
@@ -609,8 +607,8 @@ client MUST NOT invent NZB mode metadata to classify it earlier.
      Section 4).
    - No transport password available (none in the NZB and none supplied
      to the client).
-   - A locally unsupported encryption mode or cryptographic dependency,
-     including an unsupported NZB yenc_version or yenc_cipher value
+   - A locally unsupported cryptographic dependency, including an
+     unsupported NZB yenc_version or yenc_cipher value
      (Section 8) and any Argon2id parameter set other than Section 4.
    Action: Abort the job without querying alternate Usenet servers.
    Output: Zero bytes of plaintext and zero bytes of ciphertext.
@@ -624,9 +622,9 @@ client MUST NOT invent NZB mode metadata to classify it earlier.
    - An index containing forbidden delimiter bytes (0x0A or 0x0D) in the
      4-byte uint32_be(segmentIndex) representation.
    - Dual-salt or dual-index mismatch between restored Line 1 and =yencryption.
-   - A fetched article whose restored mode differs from the receiver's
-     supported contract (for example a body-only article fetched by a
-     combined-only receiver).
+   - A fetched article whose restored structure differs from the
+     receiver's supported contract (for example a body-only article
+     fetched by a combined-only receiver).
    - Missing or ambiguous AAD inputs in the fetched article (for
      example a restored =ybegin line without a name parameter),
      Section 2.1.
@@ -714,8 +712,7 @@ This tag is the interoperable way to deliver the password with a release.
 Clients MAY also take the password from their own sources (for example
 user input, an API call, or configuration) and MAY let those override the
 NZB value. How a client obtains, stores, or displays the password is up to
-the client. The same password MAY also be used by post-processing tools as
-the archive extraction password for RAR/7z/ZIP archives.
+the client.
 
 Standard NZB 1.1 Segments:
 Every <segment> element under <segments> within <file> uses standard NZB 1.1
@@ -757,9 +754,7 @@ An encryption-aware NZB reader MUST:
 6. Compute the Section 2.1 associated data from the restored control
    lines and pass it as the XChaCha20-Poly1305 associated data on
    decryption.
-7. Not require any NZB metadata beyond Section 8 to decrypt. In
-   particular a reader MUST NOT gate on undefined metadata such as a
-   mode marker.
+7. Not require any NZB metadata beyond Section 8 to decrypt.
 
 Forward-Compatibility Metadata Gating:
 NZBs MAY carry <meta type="yenc_version"> and <meta type="yenc_cipher">
@@ -769,7 +764,9 @@ entries. Producers that emit them write exactly:
 Consumers compare values after trimming surrounding whitespace:
 yenc_version MUST equal "1.2" exactly, and yenc_cipher MUST equal
 "XChaCha20-Poly1305" ASCII case-insensitively. Either entry may be
-absent. Clients that do not consume yEnc transport encryption MAY ignore
+absent. An entry that is present with an empty value counts as a
+non-matching value, not as an absent entry. Clients that do not consume
+yEnc transport encryption MAY ignore
 these entries. Clients that DO consume them MUST treat any other value as
 a METADATA_VALIDATION structural failure (fail closed); silent fallback to
 ordinary yEnc decoding risks writing ciphertext as content.
@@ -787,6 +784,12 @@ Decoupling of Presentation Metadata:
   lines after NNTP dot-unstuffing has been applied.
 - Line Terminators: Canonical yEnc generators emit CRLF (0x0D 0x0A).
   Decoders MUST accept both CRLF and bare LF (0x0A) transparently.
+  Terminators are preserved byte for byte during reconstruction
+  (Control Lines Standard Section 6); the reconstruction outcome MUST
+  NOT depend on anything but the terminator bytes the article carried,
+  so a transport layer that normalizes bare LF to CRLF before decoding
+  is conformant when the reconstructed block ends up byte-identical to
+  the wire content of a CRLF article and no article bytes are lost.
 - Article-Bounded Memory: This wire format requires authentication before
   plaintext release, so an implementation MAY buffer one complete article.
   It MUST keep working memory proportional to the configured maximum article
@@ -804,8 +807,10 @@ Decoupling of Presentation Metadata:
   the article body. For a BODY (222) response that is the first line of
   the response. For an ARTICLE (220) response it is the line after the
   first empty line, which ends the article headers (RFC 5322 Section
-  2.1, RFC 3977 Section 6.2.1). Decoders MUST locate it by this rule
-  and MUST NOT find it by trial decryption of header lines.
+  2.1, RFC 3977 Section 6.2.1). A receiver MAY fetch with BODY only and
+  reject an ARTICLE response under PROVIDER_FAILOVER. A receiver that
+  accepts ARTICLE responses locates the body by this rule and MUST NOT
+  find it by trial decryption of header lines.
 - Downstream CRC Normalization: After successful Poly1305 verification,
   decoders MUST follow the Downstream CRC Normalization obligation
   defined in Section 5 (clear ciphertext wire CRC metadata (crc32 = None)
@@ -872,7 +877,9 @@ name=file.bin); its first 8 ciphertext bytes are
 6a0d1eb225f84492. The pcrc32=b02a3f48 value is the CRC-32 of those 8
 ciphertext bytes, as the wire CRC always covers ciphertext (Section 5
 step 5); it is not the CRC-32 of the plaintext fragment
-0x48656C6C6F20576F.
+0x48656C6C6F20576F. Both example blocks reuse segmentIndex 1 for
+brevity; a real upload never reuses a segmentIndex (Section 8
+Producer Requirement 5).
 
 Decryption follows the authoritative procedure in Section 5: parse NZB
 metadata and detect <meta type="yenc_encrypted">true</meta>, locate the

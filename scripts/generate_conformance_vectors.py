@@ -7,9 +7,8 @@ Produces canonical, machine-readable JSON fixtures for:
 - XChaCha20-Poly1305 body AEAD round-trips (body_encryption.json)
 - NIST SP 800-38G FF1 control-line encryption round-trips (control_line_encryption.json)
 - Malformed-input and negative rejection vectors (malformed_inputs.json)
-- Plain NZB 1.1 segment identity vectors (nzb_segment_identity.json)
+- Index-tampering and metadata-mutation vectors (nzb_segment_identity.json)
 - Uploader segmentIndex allocation skip vectors (index_allocation.json)
-- SHA-256 integrity manifest (manifest.json)
 """
 
 import hashlib
@@ -22,7 +21,6 @@ from xml.sax import saxutils
 import nacl.exceptions as ne
 
 STANDARD_VERSION = "1.2"
-GENERATED_AT = "2026-10-11T00:00:00Z"
 # Wire CRC-32 of the single ciphertext byte 0x1c that the one-byte data line "F" encodes.
 WIRE_CRC_F = "c603b3c2"
 
@@ -538,7 +536,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-07-full-article-5-lines",
-            "description": "Full single-part combined-mode article: =ybegin, =yencryption header (line 2), two data lines untouched, =yend (line 5); line 1 bootstrap expansion",
+            "description": "FF1 line-restoration vector, 5-line single-part layout (control-line layer only; data lines opaque, tag not authenticated): =ybegin, =yencryption header (line 2), two data lines untouched, =yend (line 5); line 1 bootstrap expansion",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -573,7 +571,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-08-full-article-54-lines",
-            "description": "Full 54-line article: verifies physical line counting 1..54 across header, data, and footer",
+            "description": "FF1 line-restoration vector, 54-line multipart layout (control-line layer only; data lines opaque, tag not authenticated): verifies physical line counting 1..54 across header, data, and footer",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -643,7 +641,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-10-exact-wrap-article-6-lines",
-            "description": "Exact-wrap fixture: data lines exactly one yEnc wrap long pass through untouched, after a valid =yencryption header at line 2",
+            "description": "FF1 line-restoration vector, exact-wrap layout (control-line layer only; data lines opaque, tag not authenticated): data lines exactly one yEnc wrap long pass through untouched, after an =yencryption header at line 2",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -678,7 +676,7 @@ def generate_control_line_vectors(path: Path):
     vectors.append(
         {
             "id": "control-vec-11-combined-one-byte-data",
-            "description": "Combined-mode multipart fixture with a one-byte data line: deterministic header positions (1..3), data line untouched",
+            "description": "FF1 line-restoration vector, combined-mode multipart layout (control-line layer only; data lines opaque, tag not authenticated): deterministic header positions (1..3), one-byte data line untouched",
             "password": password,
             "salt_hex": salt_hex.lower(),
             "segment_index": 1,
@@ -730,6 +728,13 @@ def generate_control_line_vectors(path: Path):
         "standard": f"yEnc Control Lines Encryption Standard v{STANDARD_VERSION}",
         "cipher": "FF1",
         "radix": 253,
+        "note": (
+            "Control-line layer only: the multi-line vectors are FF1 "
+            "line-restoration fixtures. Their data lines are opaque filler, "
+            "their =yencryption tags are not authenticated, and no consumer "
+            "can authenticate these articles end to end; body-level vectors "
+            "live in body_encryption.json."
+        ),
         "vectors": vectors,
     }
 
@@ -1105,7 +1110,7 @@ def generate_malformed_input_vectors(path: Path):
             "zero_output_required": True,
         },
         {
-            "id": "header-12-uppercase-hex",
+            "id": "malformed-header-18-uppercase-hex",
             "category": "header_syntax",
             "description": "Uppercase hexadecimal salt is not canonical",
             "input_line": f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex.upper()} index=00000001 tag={tag.hex()}",
@@ -1113,7 +1118,7 @@ def generate_malformed_input_vectors(path: Path):
             "zero_output_required": True,
         },
         {
-            "id": "header-13-extra-token",
+            "id": "malformed-header-19-extra-token",
             "category": "header_syntax",
             "description": "An extra parameter violates the five-token grammar",
             "input_line": f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex} index=00000001 tag={tag.hex()} extra=value",
@@ -1121,7 +1126,7 @@ def generate_malformed_input_vectors(path: Path):
             "zero_output_required": True,
         },
         {
-            "id": "header-14-reordered-token",
+            "id": "malformed-header-20-reordered-token",
             "category": "header_syntax",
             "description": "Parameter order is canonical and mandatory",
             "input_line": f"=yencryption salt={salt_hex} cipher=XChaCha20-Poly1305 index=00000001 tag={tag.hex()}",
@@ -1167,29 +1172,7 @@ def generate_malformed_input_vectors(path: Path):
             "zero_output_required": True,
         },
         {
-            "id": "salt-01-dual-salt-mismatch",
-            "category": "salt_mismatch",
-            "description": "Line 1 bootstrap salt does not match =yencryption header salt",
-            "line1_salt_hex": control_salt_hex,
-            "header_salt_hex": salt_hex,
-            "line1_index": 1,
-            "header_index": 1,
-            "expected_error": "DUAL_SALT_MISMATCH",
-            "zero_output_required": True,
-        },
-        {
-            "id": "dual-02-dual-index-mismatch",
-            "category": "salt_mismatch",
-            "description": "Line 1 bootstrap segment index does not match =yencryption header index",
-            "line1_salt_hex": salt_hex,
-            "header_salt_hex": salt_hex,
-            "line1_index": 1,
-            "header_index": 2,
-            "expected_error": "DUAL_INDEX_MISMATCH",
-            "zero_output_required": True,
-        },
-        {
-            "id": "header-15-duplicate-token",
+            "id": "malformed-header-21-duplicate-token",
             "category": "header_syntax",
             "description": "Duplicate parameters are rejected",
             "input_line": f"=yencryption cipher=XChaCha20-Poly1305 salt={salt_hex} index=00000001 tag={tag.hex()} tag={tag.hex()}",
@@ -1197,7 +1180,7 @@ def generate_malformed_input_vectors(path: Path):
             "zero_output_required": True,
         },
         {
-            "id": "header-16-tab-separated",
+            "id": "malformed-header-22-tab-separated",
             "category": "header_syntax",
             "description": "=yencryption header using a tab between tokens instead of a single SP",
             "input_line": f"=yencryption\tcipher=XChaCha20-Poly1305\tsalt={salt_hex}\tindex=00000001\ttag={tag.hex()}",
@@ -1205,7 +1188,7 @@ def generate_malformed_input_vectors(path: Path):
             "zero_output_required": True,
         },
         {
-            "id": "header-17-double-space",
+            "id": "malformed-header-23-double-space",
             "category": "header_syntax",
             "description": "=yencryption header using two consecutive spaces between tokens instead of a single SP",
             "input_line": f"=yencryption  cipher=XChaCha20-Poly1305  salt={salt_hex}  index=00000001  tag={tag.hex()}",
@@ -1228,6 +1211,28 @@ def generate_malformed_input_vectors(path: Path):
             "expected_error": "CONTROL_LINE_DECRYPT_FAILURE",
             "expected_rejection_stage": "PROVIDER_FAILOVER",
             "provider_failover_permitted": True,
+            "zero_output_required": True,
+        },
+        {
+            "id": "malformed-dual-01-dual-salt-mismatch",
+            "category": "salt_mismatch",
+            "description": "Line 1 bootstrap salt does not match =yencryption header salt",
+            "line1_salt_hex": control_salt_hex,
+            "header_salt_hex": salt_hex,
+            "line1_index": 1,
+            "header_index": 1,
+            "expected_error": "DUAL_SALT_MISMATCH",
+            "zero_output_required": True,
+        },
+        {
+            "id": "malformed-dual-02-dual-index-mismatch",
+            "category": "salt_mismatch",
+            "description": "Line 1 bootstrap segment index does not match =yencryption header index",
+            "line1_salt_hex": salt_hex,
+            "header_salt_hex": salt_hex,
+            "line1_index": 1,
+            "header_index": 2,
+            "expected_error": "DUAL_INDEX_MISMATCH",
             "zero_output_required": True,
         },
     ])
@@ -1286,24 +1291,6 @@ def make_nzb_xml(files_spec: list[dict], password: str | None = None, yenc_encry
     return "\n".join(lines)
 
 
-def _valid_nzb_vector(vec_id: str, description: str, files_spec: list[dict]) -> dict:
-    """Build an encrypted plain-NZB vector whose expected segments follow XML order."""
-    expected = [
-        {"message_id": s["message_id"], "part": s["number"], "bytes": s["bytes"]}
-        for f in files_spec
-        for s in f["segments"]
-    ]
-    return {
-        "id": vec_id,
-        "category": "valid_identity",
-        "description": description,
-        "expected_valid": True,
-        "is_encrypted": True,
-        "nzb_xml": make_nzb_xml(files_spec, password="test123", yenc_encrypted=True),
-        "expected_segments": expected,
-    }
-
-
 def _seg(bytes_: int, number: int, message_id: str) -> dict:
     return {"bytes": bytes_, "number": number, "message_id": message_id}
 
@@ -1313,101 +1300,7 @@ def generate_nzb_segment_identity_vectors(path: Path):
     vectors = []
 
     # -------------------------------------------------------------------------
-    # Category 1: valid_identity
-    # -------------------------------------------------------------------------
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-01-basic-sequential",
-        "Standard two-file encrypted release parsed as plain NZB 1.1 segments",
-        [
-            {"subject": '[1/2] - "file1.bin" yEnc (1/2)', "segments": [
-                _seg(750000, 1, "art-1@example.com"),
-                _seg(750000, 2, "art-2@example.com"),
-            ]},
-            {"subject": '[2/2] - "file2.bin" yEnc (1/1)', "segments": [
-                _seg(500000, 1, "art-3@example.com"),
-            ]},
-        ],
-    ))
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-02-arbitrary-subject",
-        "Files with arbitrary descriptive subjects without [N/M] counters",
-        [
-            {"subject": "Holiday Photos 2026 - Image Collection Part A", "segments": [
-                _seg(750000, 1, "art-arb-1@example.com"),
-            ]},
-            {"subject": "Holiday Photos 2026 - Image Collection Part B", "segments": [
-                _seg(500000, 1, "art-arb-2@example.com"),
-            ]},
-        ],
-    ))
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-03-obfuscated-subject",
-        "Files with random obfuscated hex hash subjects",
-        [
-            {"subject": "a8f9c2d1e0b4a7d6e5f8", "segments": [_seg(750000, 1, "art-obf-1@example.com")]},
-            {"subject": "3b7c8d9e0f1a2b3c4d5e", "segments": [_seg(750000, 1, "art-obf-2@example.com")]},
-        ],
-    ))
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-04-misleading-counter",
-        "Subjects containing misleading [99/100] and (5/10) counters have no effect on parsing",
-        [
-            {"subject": '[99/100] - "misleading.bin" yEnc (5/10)', "segments": [
-                _seg(750000, 1, "art-mis-1@example.com"),
-            ]},
-            {"subject": '[50/100] - "misleading.bin" yEnc (6/10)', "segments": [
-                _seg(750000, 1, "art-mis-2@example.com"),
-            ]},
-        ],
-    ))
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-05-reordered-files",
-        "XML file elements in reverse order parse without reordering",
-        [
-            {"subject": '[2/2] - "file2.bin" yEnc (1/1)', "segments": [_seg(500000, 1, "art-rf-2@example.com")]},
-            {"subject": '[1/2] - "file1.bin" yEnc (1/1)', "segments": [_seg(750000, 1, "art-rf-1@example.com")]},
-        ],
-    ))
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-06-reordered-segments",
-        "XML segment elements out of order within a file parse without reordering",
-        [
-            {"subject": '[1/1] - "file.bin" yEnc (1/2)', "segments": [
-                _seg(750000, 2, "art-rs-2@example.com"),
-                _seg(750000, 1, "art-rs-1@example.com"),
-            ]},
-        ],
-    ))
-    vectors.append(_valid_nzb_vector(
-        "nzb-valid-10-partial-nzb-subset",
-        "Partial NZB subset containing only file 2 parses without renumbering parts",
-        [
-            {"subject": '[2/3] - "file2.bin" yEnc (1/2)', "segments": [
-                _seg(750000, 1, "art-sub-3@example.com"),
-                _seg(750000, 2, "art-sub-4@example.com"),
-            ]},
-        ],
-    ))
-
-    # -------------------------------------------------------------------------
-    # Category 2: unencrypted_compatibility
-    # -------------------------------------------------------------------------
-    vectors.append({
-        "id": "nzb-compat-01-unencrypted-plain",
-        "category": "unencrypted_compatibility",
-        "description": "Standard unencrypted NZB without password or provenance metadata",
-        "expected_valid": True,
-        "is_encrypted": False,
-        "nzb_xml": make_nzb_xml([
-            {"subject": '[1/1] - "plain.bin" yEnc (1/1)', "segments": [_seg(750000, 1, "art-plain@example.com")]},
-        ], password=None),
-        "expected_segments": [
-            {"message_id": "art-plain@example.com", "part": 1, "bytes": 750000},
-        ],
-    })
-
-    # -------------------------------------------------------------------------
-    # Category 3: index_tampering (the altered index is in the article bootstrap)
+    # Category 1: index_tampering (the altered index is in the article bootstrap)
     # -------------------------------------------------------------------------
     tamper1_pw = "test123"
     tamper1_salt_hex = "1a2b3c4d5e6f7890abcdef1234567890"
@@ -1424,7 +1317,6 @@ def generate_nzb_segment_identity_vectors(path: Path):
         "id": "nzb-tamper-01-index-mismatch-zero-output",
         "category": "index_tampering",
         "description": "Article encrypted with segmentIndex 1 but carrying an altered bootstrap index of 2 fails Poly1305 verification with zero output",
-        "expected_valid": True,
         "expected_error": "AUTHENTICATION_FAILURE",
         "expected_rejection_stage": "PROVIDER_FAILOVER",
         "zero_output_required": True,
@@ -1461,7 +1353,6 @@ def generate_nzb_segment_identity_vectors(path: Path):
         "id": "nzb-tamper-02-index-swap-zero-output",
         "category": "index_tampering",
         "description": "Two articles whose bootstrap segmentIndex values are swapped both fail authentication with zero output",
-        "expected_valid": True,
         "expected_error": "AUTHENTICATION_FAILURE",
         "expected_rejection_stage": "PROVIDER_FAILOVER",
         "zero_output_required": True,
@@ -1496,7 +1387,7 @@ def generate_nzb_segment_identity_vectors(path: Path):
     })
 
     # -------------------------------------------------------------------------
-    # Category 4: metadata_mutation (AAD binding of assembly
+    # Category 2: metadata_mutation (AAD binding of assembly
     # metadata; each mutated field must fail body authentication)
     # -------------------------------------------------------------------------
     mut_pw = "test123"
@@ -1527,7 +1418,6 @@ def generate_nzb_segment_identity_vectors(path: Path):
             "id": vec_id,
             "category": "metadata_mutation",
             "description": f"Assembly metadata mutated after encryption ({mut_desc}); authentication must fail with zero output",
-            "expected_valid": False,
             "expected_error": "AUTHENTICATION_FAILURE",
             "expected_rejection_stage": "PROVIDER_FAILOVER",
             "zero_output_required": True,
@@ -1602,69 +1492,6 @@ def generate_index_allocation_vectors(path: Path):
     print(f"Generated {len(vectors)} index allocation vectors in {path.name}")
 
 
-def generate_manifest(output_dir: Path):
-    """Generate manifest.json with SHA-256 hashes and vector counts."""
-    files_meta = {
-        "argon2id.json": {
-            "description": "RFC 9106 Argon2id key derivation test vectors",
-        },
-        "nonce_tweak.json": {
-            "description": "HMAC-SHA256 nonce and tweak derivation test vectors",
-        },
-        "body_encryption.json": {
-            "description": "RFC 8439 Extended XChaCha20-Poly1305 body encryption round-trip vectors",
-        },
-        "control_line_encryption.json": {
-            "description": "NIST SP 800-38G FF1 control-line encryption round-trip vectors",
-        },
-        "malformed_inputs.json": {
-            "description": "Malformed syntax, invalid parameters, and auth failure rejection vectors",
-        },
-        "nzb_segment_identity.json": {
-            "description": "NZB 1.1 parsing, self-describing article identity, and compatibility vectors",
-        },
-        "index_allocation.json": {
-            "description": "Uploader segmentIndex allocation skip vectors",
-        },
-    }
-
-    files_dict = {}
-    for filename, meta in files_meta.items():
-        file_path = output_dir / filename
-        if not file_path.is_file():
-            raise FileNotFoundError(f"Fixture file missing for manifest: {file_path}")
-        raw_bytes = file_path.read_bytes()
-        sha256_hash = hashlib.sha256(raw_bytes).hexdigest()
-        data = json.loads(raw_bytes.decode("utf-8"))
-
-        if "vectors" in data:
-            v_count = len(data["vectors"])
-        elif "body_nonce_vectors" in data and "control_tweak_vectors" in data:
-            v_count = len(data["body_nonce_vectors"]) + len(data["control_tweak_vectors"])
-        else:
-            v_count = 0
-
-        files_dict[filename] = {
-            "sha256": sha256_hash,
-            "vector_count": v_count,
-            "description": meta["description"],
-        }
-
-    manifest = {
-        "schema_version": "1.0",
-        "standard_version": STANDARD_VERSION,
-        "generated_at": GENERATED_AT,
-        "description": f"Deterministic test vectors for yEnc Body & Control Lines Encryption Standards v{STANDARD_VERSION}",
-        "files": files_dict,
-    }
-
-    manifest_path = output_dir / "manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print(f"Generated manifest.json in {output_dir}")
-
-
 def main():
     repo_root = Path(__file__).resolve().parent.parent
     output_dir = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else repo_root / "test-vectors"
@@ -1678,8 +1505,7 @@ def main():
     generate_malformed_input_vectors(output_dir / "malformed_inputs.json")
     generate_nzb_segment_identity_vectors(output_dir / "nzb_segment_identity.json")
     generate_index_allocation_vectors(output_dir / "index_allocation.json")
-    generate_manifest(output_dir)
-    print("All conformance fixtures and manifest successfully generated.")
+    print("All conformance fixtures successfully generated.")
 
 
 if __name__ == "__main__":

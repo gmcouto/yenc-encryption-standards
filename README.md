@@ -98,29 +98,20 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 ### Segment Identity Rules
 
-- `number` is the standard NZB 1.1 1-based part number within the file.
-- `segmentIndex` is an explicit unsigned 32-bit integer in range `1..=4294967295` encoded in article bootstrap bytes: carried in the `=yencryption` `index` parameter and in Line 1 bytes 16..19.
-- Formatting is a 4-byte big-endian integer on Line 1 and an 8-character lowercase hexadecimal string in =yencryption.
-- Each segmentIndex is globally unique across the entire upload session.
-- Index framing rule: producers MUST skip any `segmentIndex` whose 4-byte big-endian representation contains bytes `0x0A` (LF) or `0x0D` (CR); receivers MUST reject such indices under `PROVIDER_FAILOVER`.
-- NZB segments are standard NZB 1.1; downloaders extract segment identity directly from article bytes. Readers MUST accept both canonical NZB namespaces, http://www.newzbin.com/DTD/2003/nzb and http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd, or match elements irrespective of namespace prefixing.
-- NNTP headers, file subjects, and XML (file or segment) ordering carry no cryptographic meaning.
+- `segmentIndex` is an explicit unsigned 32-bit integer in range `1..=4294967295` encoded in article bootstrap bytes, not in the NZB; see the two standards for the framing rule and the exact encoding.
 
 ## Processing and Failure Rules
 
-The downloader reads the NZB metadata before requesting an article. A compliant encrypted NZB MUST contain `<meta type="yenc_encrypted">true</meta>` and normally carries `<meta type="password">`. A password without the provenance marker remains an archive password and MUST NOT enable transport decryption. The article bootstrap in fetched article bytes is the only cryptographic identity input. Subjects, NNTP headers, post order, XML order, and `<segment bytes>` have no cryptographic meaning. `yenc_encrypted` matches `true` case-insensitively; the optional `yenc_version` must be `1.2` and the optional `yenc_cipher` must be `XChaCha20-Poly1305` (case-insensitive), both after trimming whitespace. Any other version or cipher value fails closed. There is no mode metadata. In an ARTICLE response the encrypted yEnc block starts after the blank line that ends the headers; it is never located by trial decryption.
+The two .txt standards are the normative source for all rules; the lists below are only a summary with pointers.
 
-A block is multipart if and only if physical line 2 after `=ybegin` is `=ypart`; otherwise it is single-part. For a single-part block, `=yencryption` is physical line 2, immediately after `=ybegin`. For a multipart block, `=ypart` is line 2 and `=yencryption` is line 3. Encrypted receivers NEVER read `part=` from `=ybegin` to decide header placement; they decrypt physical line 2 first. A mismatch between physical line 2 framing and restored `=ybegin` content is corrupt framing and MUST fail under `PROVIDER_FAILOVER`. Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB bound); producers refuse larger files and receivers treat begin or size values >= 2^32 as `PROVIDER_FAILOVER`. The canonical wire line is `=yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>`. Each placeholder is replaced by lowercase hexadecimal characters: salt is 32 hex chars, index is 8 hex chars (uint32_be in range 00000001..ffffffff), and tag is 32 hex chars, producing exactly 128 characters excluding CRLF. The line uses one ASCII space between its five tokens and has no leading or trailing whitespace. Parsers reject any other field order, spacing, field count, cipher name, character set, or value length.
-
-When both standards are used, the raw salt and uint32_be segmentIndex prepended to Line 1 and the hexadecimal salt and index in `=yencryption` MUST represent the same values. Wire CRC values cover ciphertext and are checked before AEAD authentication and decryption. After authentication succeeds, decoders MUST NOT persist the ciphertext wire CRC into any verification path (PAR2, quick-check, whole-file CRC folding); they either clear the CRC metadata or recompute it over authenticated plaintext. Producers MUST dot-stuff per RFC 3977 Section 3.1.1 and consumers MUST dot-unstuff before line splitting and index counting; segment byte counts report dot-unstuffed content length. Each AEAD call uses the Body Standard Section 2.1 associated data, computed from the restored control lines only. Uploaders write `<segment bytes>` as the plaintext segment length, and downloaders MAY compare it as a consistency check.
-
-Encrypted articles require a present, non-empty `name=` and an applicable ciphertext CRC (`pcrc32` for multipart, `crc32` for single-part). Missing or invalid values are `PROVIDER_FAILOVER`; unauthenticated output remains forbidden. A multipart `=yend` carries only `pcrc32`: producers MUST NOT emit a whole-file `crc32=` on any part of an encrypted multipart article (including the last), and receivers ignore one if present.
-
-### Key Derivation Inputs (both standards)
-
-The KDF inputs are fixed in both standards and are not configurable: the password is encoded to UTF-8 exactly as its source text with NO Unicode normalization (no NFC, NFD, NFKC, or NFKD); Argon2id uses version 0x13 (v=19), time=1, memory=65536 KiB, parallelism=4, and a 32-byte output, with empty optional secret and associated data. Passwords carried by `<meta type="password">` must be XML-representable: the XML-escaped content must parse back to the exact password used by the KDF. Parsers must not silently alter the KDF password (no stripping, trimming, case folding, normalization, or character dropping); producers must refuse XML-unrepresentable passwords on the NZB route, and consumers must treat a password that fails XML parsing as METADATA_VALIDATION.
-
-Failures in NZB metadata or local configuration before article retrieval are structural. Missing provenance, malformed XML, no available password (neither in the NZB nor supplied to the client), an unsupported `yenc_version`, `yenc_cipher`, cipher suite, or KDF parameter set is fatal and MUST NOT trigger provider failover. Failures in fetched article bytes after those checks pass are provider corruption. This includes malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; dual-salt or dual-index mismatch; failed control-line restoration; a fetched article in an unexpected mode (for example body-only framing at a combined-only receiver); wire CRC mismatch; a segmentIndex whose 4-byte big-endian representation contains bytes 0x0A or 0x0D; truncation; and AEAD authentication failure. Clients retry provider corruption on eligible alternate providers. Both tiers release zero plaintext and zero ciphertext as final output.
+- NZB gating: `<meta type="yenc_encrypted">true</meta>` (trimmed, ASCII case-insensitive) enables transport decryption; a password without it stays an archive password (Body Standard Section 8).
+- Optional `yenc_version` and `yenc_cipher` metadata: an absent entry is allowed; a present but empty or non-matching value (`1.2` exactly; `XChaCha20-Poly1305` case-insensitive, both after trimming whitespace) is a `METADATA_VALIDATION` failure (Body Standard Section 8).
+- Header placement: an article is multipart if and only if physical line 2 after `=ybegin` is `=ypart`; receivers decrypt physical line 2 first and never read `part=` from `=ybegin` to decide placement (Body Standard Sections 3-5).
+- For a file that fits in one segment, the uploader chooses single-part framing or a one-part multipart block; both are conformant (Body Standard Section 4).
+- Key derivation: Argon2id with the exact fixed inputs of Body Standard Section 4; passwords are used unaltered and must be XML-representable when carried by NZB metadata.
+- Error tiers: `METADATA_VALIDATION` (NZB metadata or local configuration, before fetch, aborts the job) and `PROVIDER_FAILOVER` (fetched article bytes, retry another provider); both tiers release zero plaintext and zero ciphertext (Body Standard Section 5).
+- The wire CRC covers ciphertext and is verified before AEAD authentication; afterwards decoders clear or recompute it over plaintext (Body Standard Section 5).
+- Transport: producers dot-stuff per RFC 3977 Section 3.1.1; consumers dot-unstuff before line splitting; CRLF is canonical and bare LF is accepted; memory stays bounded to one article (Body Standard Section 9).
 
 ## Wire Specifications and Invariants
 
@@ -135,10 +126,7 @@ Alphabet: 253 bytes (0x01-0xFF excluding CR/LF: 0x0D and 0x0A)
 Cipher: FF1 with AES-256
 Key Derivation: Argon2id(password UTF-8 no-normalization, salt, time=1, memory=65536 KiB, parallelism=4, 32-byte output, version 0x13)
 Tweak: HMAC-SHA256(masterKey, "yenc-control tweak" || uint32_be(segmentIndex) || uint32_be(lineIndex))[0:8]
-segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from article bootstrap
-Salt: 16 random bytes sampled from 253-byte Alphabet, prepended to line 1 as part of 20-byte bootstrap prefix
 Length: Line 1 expands by 20 bytes; lines 2..N preserve exact byte length
-Line Counting: 1-based physical line numbers after dot-unstuffing
 Restoration: deterministic, position-based; data lines are never decrypted
 ```
 
@@ -154,28 +142,16 @@ Authentication: Poly1305 (128-bit tag)
 Key Derivation: Argon2id(password UTF-8 no-normalization, salt, time=1, memory=65536 KiB, parallelism=4, 32-byte output, version 0x13)
 Nonce: HMAC-SHA256(key, "yenc-body nonce" || uint32_be(segmentIndex))[0:24]
 AAD: "yenc-body aad" || uint32_be(partNumber) || uint32_be(partBegin) || uint64_be(segmentBytes) || uint32_be(nameLength) || name (Body Standard Section 2.1)
-segmentIndex: Explicit unsigned 32-bit integer in range 1..=4294967295 from article bootstrap
-Salt: 16 cryptographically secure random bytes (CSPRNG) drawn from the 253-byte Alphabet (no 0x00, 0x0A, or 0x0D)
 Format: =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
 Placement: Single-part line 2 (after =ybegin); multipart line 3 (after =ypart)
 CRC Handling: Wire CRC in =yend covers ciphertext; verified then cleared (crc32 = None) or recomputed over authenticated plaintext
 ```
 
-### Error Handling and Security Invariants
-
-There are two error tiers:
-
-1. Fatal structural failures (`METADATA_VALIDATION`) arise from NZB metadata or local configuration before article retrieval. Examples are missing provenance, malformed XML, no available password, or an unsupported `yenc_version` or `yenc_cipher` value. The client aborts the job without querying alternate providers.
-
-2. Retriable provider corruption (`PROVIDER_FAILOVER`) arises from fetched article bytes after structural validation succeeds. Examples are malformed, missing, misplaced, or duplicate control lines; an unsupported cipher token in `=yencryption`; dual-salt or dual-index mismatch; failed control-line restoration; a fetched article in an unexpected mode (for example body-only framing at a combined-only receiver); wire CRC mismatch; truncation; and Poly1305 authentication failure. The client tries eligible alternate providers and applies normal repair policy if they all fail.
-
-A client MUST NOT release or write unauthenticated plaintext or ciphertext to a target file, a cache visible to downstream stages, or a subsequent pipeline stage. It MAY retain one article in working memory until validation completes and MUST discard that working data on failure.
-
-Because AEAD authentication must finish before plaintext release, an implementation MAY buffer one complete article. Working memory MUST remain O(article_size) and MUST NOT grow with a multipart file or release. Reference implementations accept typical article sizes from 128 KiB through 4 MiB and enforce local safety limits up to 8 MiB. Those values are implementation guidance, not wire limits. A receiver MAY reject an article above its configured limit before allocation or decryption.
+A client MUST NOT release or write unauthenticated plaintext or ciphertext to any downstream target, and it MAY buffer one article of working memory until validation completes. Working memory MUST remain O(article_size) and MUST NOT grow with a multipart file or release (Body Standard Sections 5 and 9).
 
 ## Status
 
-Both specifications are published as experimental v1.2 wire contracts (v1.2 Experimental) dated 2026-10-10. Version 1.2 defines combined mode only (control line encryption and body encryption together); other framing modes are reserved for future standards. Decoders decrypt physical line 2 first to determine multipart framing; contradictory framing is rejected under `PROVIDER_FAILOVER`. Encrypted files MUST be strictly smaller than 2^32 bytes (four-GiB bound); producers refuse larger files and receivers treat begin or size values >= 2^32 as `PROVIDER_FAILOVER`. The two error tiers carry the identifiers used throughout this README and both standards: `METADATA_VALIDATION` for the fatal structural tier and `PROVIDER_FAILOVER` for the retriable provider-corruption tier. The shared salt is sampled uniformly from the 253-byte Alphabet (excluding 0x00, 0x0A, and 0x0D). Body encryption binds exact associated data (Section 2.1 of the Body Standard) covering each segment's assembly position and `=ybegin` name; v1.2 producers emit combined mode only. They form an interoperability baseline across Pesto, Penne, SABnzbd, NZBGet, Nyuu, and ngPost. The wire contracts for control-line encryption (FF1) and body encryption (XChaCha20-Poly1305) define self-describing article bootstraps, so NZB segments stay standard NZB 1.1.
+Both specifications are experimental v1.2 wire contracts; v1.2 is pre-release and not published. Version 1.2 defines combined mode only (control line encryption and body encryption together); other framing modes are reserved for future standards. The two .txt files in this repository are the only normative source.
 
 ## Tooling and Conformance Suite
 
@@ -186,7 +162,6 @@ The repository provides automated validation and reference implementations under
 - `yenc_enc_reference.py`: Canonical reference implementation of cryptographic derivations (Argon2id KDF, HMAC-SHA256 nonces and tweaks, NIST SP 800-38G FF1 with Radix 253 Alphabet, and XChaCha20-Poly1305 AEAD).
 - `generate_conformance_vectors.py`: Deterministic test vector generator producing JSON fixtures with cryptographic inputs, wire lines, and expected outcomes.
 - `test_conformance_vectors.py`: Automated test harness exercising all generated test vector fixtures and validating failure-mode enforcement.
-- `test_standards_v1.py`: Specification consistency and grammar validator ensuring normative texts agree on constants, layout, and error models.
 
 Run tests using pytest or direct invocation:
 ```bash
@@ -196,14 +171,14 @@ pytest scripts/
 
 ### Test Vectors (`test-vectors/`)
 
-Deterministic test vectors are maintained under `test-vectors/` along with `manifest.json` carrying SHA-256 integrity digests:
+Test vectors (helper artifacts for implementers; the two .txt standards are the only normative source) are maintained under `test-vectors/`:
 
 - `argon2id.json`: Key derivation test vectors including exact byte handling with no Unicode normalization.
 - `nonce_tweak.json`: HMAC-SHA256 19-byte body nonce and 26-byte control tweak derivation vectors.
 - `body_encryption.json`: XChaCha20-Poly1305 AEAD round-trips with Section 2.1 Associated Data.
 - `control_line_encryption.json`: NIST SP 800-38G FF1 control-line encryption round-trips and deterministic multi-line article layout fixtures.
 - `malformed_inputs.json`: Malformed headers, bad salts, corrupted tags, framing mismatches, and zero-output assertions.
-- `nzb_segment_identity.json`: Standard NZB 1.1 XML parsing, segmentIndex binding, and metadata mutation rejections.
+- `nzb_segment_identity.json`: Tampered-index and metadata-mutation vectors asserting authentication enforcement and zero output.
 - `index_allocation.json`: Uploader segmentIndex sequence progression skipping indices containing forbidden delimiter bytes (0x0A, 0x0D).
 
 To regenerate vectors deterministically:
