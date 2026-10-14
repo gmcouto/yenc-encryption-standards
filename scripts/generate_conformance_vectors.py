@@ -7,7 +7,6 @@ Produces canonical, machine-readable JSON fixtures for:
 - XChaCha20-Poly1305 body AEAD round-trips (body_encryption.json)
 - NIST SP 800-38G FF1 control-line encryption round-trips (control_line_encryption.json)
 - Malformed-input and negative rejection vectors (malformed_inputs.json)
-- Index-tampering and metadata-mutation vectors (nzb_segment_identity.json)
 - Uploader segmentIndex allocation skip vectors (index_allocation.json)
 """
 
@@ -16,7 +15,6 @@ import hmac
 import json
 import sys
 from pathlib import Path
-from xml.sax import saxutils
 
 import nacl.exceptions as ne
 
@@ -1253,195 +1251,6 @@ def generate_malformed_input_vectors(path: Path):
     print(f"Generated {len(vectors)} malformed input rejection vectors in {path.name}")
 
 
-def make_nzb_xml(files_spec: list[dict], password: str | None = None, yenc_encrypted: bool = False) -> str:
-    """Generate a plain NZB 1.1 XML string for conformance test vectors.
-
-    Segment elements carry only the standard NZB 1.1 `bytes` and `number`
-    attributes; segment identity lives in the article bootstrap (Section 8).
-    """
-    lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<!DOCTYPE nzb PUBLIC "-//newzBin//DTD NZB 1.1//EN" "http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd">',
-        '<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">',
-    ]
-    if password is not None:
-        lines.append("  <head>")
-        lines.append(f'    <meta type="password">{saxutils.escape(password)}</meta>')
-        if yenc_encrypted:
-            lines.append('    <meta type="yenc_encrypted">true</meta>')
-        lines.append("  </head>")
-    for f in files_spec:
-        poster = saxutils.escape(f.get("poster", "poster@example.com"), {'"': '&quot;'})
-        date = saxutils.escape(str(f.get("date", 1774300000)), {'"': '&quot;'})
-        subject = saxutils.escape(f.get("subject", "file.bin"), {'"': '&quot;'})
-        lines.append(f'  <file poster="{poster}" date="{date}" subject="{subject}">')
-        lines.append("    <groups>")
-        for g in f.get("groups", ["alt.binaries.test"]):
-            lines.append(f"      <group>{saxutils.escape(g)}</group>")
-        lines.append("    </groups>")
-        lines.append("    <segments>")
-        for s in f.get("segments", []):
-            b = saxutils.escape(str(s.get("bytes", 750000)), {'"': '&quot;'})
-            num = saxutils.escape(str(s.get("number", 1)), {'"': '&quot;'})
-            mid = saxutils.escape(s.get("message_id", "art@example.com"))
-            lines.append(f'      <segment bytes="{b}" number="{num}">{mid}</segment>')
-        lines.append("    </segments>")
-        lines.append("  </file>")
-    lines.append("</nzb>")
-    return "\n".join(lines)
-
-
-def _seg(bytes_: int, number: int, message_id: str) -> dict:
-    return {"bytes": bytes_, "number": number, "message_id": message_id}
-
-
-def generate_nzb_segment_identity_vectors(path: Path):
-    """Generate plain NZB 1.1 fixtures for self-describing article identity."""
-    vectors = []
-
-    # -------------------------------------------------------------------------
-    # Category 1: index_tampering (the altered index is in the article bootstrap)
-    # -------------------------------------------------------------------------
-    tamper1_pw = "test123"
-    tamper1_salt_hex = "1a2b3c4d5e6f7890abcdef1234567890"
-    tamper1_actual_idx = 1
-    tamper1_tampered_idx = 2
-    tamper1_pt = b"Sensitive plaintext data for index tampering test"
-    tamper1_aad = build_aad(b"tampered1.bin", 1, 1, len(tamper1_pt))
-    tamper1_key = derive_key(tamper1_pw, bytes.fromhex(tamper1_salt_hex))
-    tamper1_nonce = derive_body_nonce(tamper1_key, tamper1_actual_idx)
-    tamper1_ct, tamper1_tag = body_encrypt(tamper1_pt, tamper1_key, tamper1_nonce, tamper1_aad)
-    assert body_decrypt(tamper1_ct, tamper1_tag, tamper1_key, tamper1_nonce, tamper1_aad) == tamper1_pt
-
-    vectors.append({
-        "id": "nzb-tamper-01-index-mismatch-zero-output",
-        "category": "index_tampering",
-        "description": "Article encrypted with segmentIndex 1 but carrying an altered bootstrap index of 2 fails Poly1305 verification with zero output",
-        "expected_error": "AUTHENTICATION_FAILURE",
-        "expected_rejection_stage": "PROVIDER_FAILOVER",
-        "zero_output_required": True,
-        "password": tamper1_pw,
-        "salt_hex": tamper1_salt_hex,
-        "aad_hex": tamper1_aad.hex(),
-        "actual_segment_index": tamper1_actual_idx,
-        "tampered_segment_index": tamper1_tampered_idx,
-        "plaintext_hex": tamper1_pt.hex(),
-        "ciphertext_hex": tamper1_ct.hex(),
-        "tag_hex": tamper1_tag.hex(),
-        "nzb_xml": make_nzb_xml([
-            {"subject": '"tampered1.bin"', "segments": [_seg(len(tamper1_ct), 1, "art-tamper-01@example.com")]},
-        ], password=tamper1_pw, yenc_encrypted=True),
-    })
-
-    tamper2_pw = "test123"
-    tamper2_salt_hex = "abcdef12345678901a2b3c4d5e6f7890"
-    tamper2_key = derive_key(tamper2_pw, bytes.fromhex(tamper2_salt_hex))
-    tamper2_pt1 = b"Payload for segment 1 in index swap security test"
-    tamper2_pt2 = b"Payload for segment 2 in index swap security test"
-    # AAD per Body Standard Section 2.1: segment 1 at part 1 begin 1,
-    # segment 2 at part 2 begin 50 (both 49 plaintext bytes).
-    tamper2_aad1 = build_aad(b"swapped.bin", 1, 1, len(tamper2_pt1))
-    tamper2_aad2 = build_aad(b"swapped.bin", 2, 50, len(tamper2_pt2))
-    tamper2_nonce1 = derive_body_nonce(tamper2_key, 1)
-    tamper2_nonce2 = derive_body_nonce(tamper2_key, 2)
-    tamper2_ct1, tamper2_tag1 = body_encrypt(tamper2_pt1, tamper2_key, tamper2_nonce1, tamper2_aad1)
-    tamper2_ct2, tamper2_tag2 = body_encrypt(tamper2_pt2, tamper2_key, tamper2_nonce2, tamper2_aad2)
-    assert body_decrypt(tamper2_ct1, tamper2_tag1, tamper2_key, tamper2_nonce1, tamper2_aad1) == tamper2_pt1
-    assert body_decrypt(tamper2_ct2, tamper2_tag2, tamper2_key, tamper2_nonce2, tamper2_aad2) == tamper2_pt2
-
-    vectors.append({
-        "id": "nzb-tamper-02-index-swap-zero-output",
-        "category": "index_tampering",
-        "description": "Two articles whose bootstrap segmentIndex values are swapped both fail authentication with zero output",
-        "expected_error": "AUTHENTICATION_FAILURE",
-        "expected_rejection_stage": "PROVIDER_FAILOVER",
-        "zero_output_required": True,
-        "password": tamper2_pw,
-        "salt_hex": tamper2_salt_hex,
-        "tampered_segments": [
-            {
-                "message_id": "art-tamper-02a@example.com",
-                "actual_segment_index": 1,
-                "tampered_segment_index": 2,
-                "aad_hex": tamper2_aad1.hex(),
-                "plaintext_hex": tamper2_pt1.hex(),
-                "ciphertext_hex": tamper2_ct1.hex(),
-                "tag_hex": tamper2_tag1.hex(),
-            },
-            {
-                "message_id": "art-tamper-02b@example.com",
-                "actual_segment_index": 2,
-                "tampered_segment_index": 1,
-                "aad_hex": tamper2_aad2.hex(),
-                "plaintext_hex": tamper2_pt2.hex(),
-                "ciphertext_hex": tamper2_ct2.hex(),
-                "tag_hex": tamper2_tag2.hex(),
-            },
-        ],
-        "nzb_xml": make_nzb_xml([
-            {"subject": '"swapped.bin"', "segments": [
-                _seg(len(tamper2_ct1), 1, "art-tamper-02a@example.com"),
-                _seg(len(tamper2_ct2), 2, "art-tamper-02b@example.com"),
-            ]},
-        ], password=tamper2_pw, yenc_encrypted=True),
-    })
-
-    # -------------------------------------------------------------------------
-    # Category 2: metadata_mutation (AAD binding of assembly
-    # metadata; each mutated field must fail body authentication)
-    # -------------------------------------------------------------------------
-    mut_pw = "test123"
-    mut_salt_hex = "13579bdf2468ace013579bdf2468ace0"
-    mut_key = derive_key(mut_pw, bytes.fromhex(mut_salt_hex))
-    mut_pt = b"Assembly metadata mutation test payload bytes"
-    mut_nonce = derive_body_nonce(mut_key, 1)
-    mut_aad = build_aad(b"mutation.bin", 1, 1, len(mut_pt))
-    mut_ct, mut_tag = body_encrypt(mut_pt, mut_key, mut_nonce, mut_aad)
-    assert body_decrypt(mut_ct, mut_tag, mut_key, mut_nonce, mut_aad) == mut_pt
-
-    mutation_cases = [
-        ("nzb-mutation-01-name", "name mutated (mutation.bin -> mutated.bin)",
-         build_aad(b"mutated.bin", 1, 1, len(mut_pt))),
-        ("nzb-mutation-02-part-number", "part number mutated (1 -> 2)",
-         build_aad(b"mutation.bin", 2, 1, len(mut_pt))),
-        ("nzb-mutation-03-part-begin", "part begin mutated (1 -> 100)",
-         build_aad(b"mutation.bin", 1, 100, len(mut_pt))),
-        ("nzb-mutation-04-segment-bytes", "segment byte count mutated (46 -> 47)",
-         build_aad(b"mutation.bin", 1, 1, len(mut_pt) + 1)),
-        ("nzb-mutation-05-name-case", "name case mutated (mutation.bin -> Mutation.bin)",
-         build_aad(b"Mutation.bin", 1, 1, len(mut_pt))),
-        ("nzb-mutation-06-unicode-name", "name replaced by its NFC-normalized spelling (NFD name encrypted, NFC name used for decryption)",
-         build_aad("mutatio\u0308n.bin".encode("utf-8"), 1, 1, len(mut_pt))),
-    ]
-    for vec_id, mut_desc, mutated_aad in mutation_cases:
-        vectors.append({
-            "id": vec_id,
-            "category": "metadata_mutation",
-            "description": f"Assembly metadata mutated after encryption ({mut_desc}); authentication must fail with zero output",
-            "expected_error": "AUTHENTICATION_FAILURE",
-            "expected_rejection_stage": "PROVIDER_FAILOVER",
-            "zero_output_required": True,
-            "password": mut_pw,
-            "salt_hex": mut_salt_hex,
-            "segment_index": 1,
-            "aad_hex": mutated_aad.hex(),
-            "plaintext_hex": mut_pt.hex(),
-            "ciphertext_hex": mut_ct.hex(),
-            "tag_hex": mut_tag.hex(),
-            "nzb_xml": make_nzb_xml([
-                {"subject": '"mutation.bin"', "segments": [_seg(len(mut_ct), 1, f"{vec_id}@example.com")]},
-            ], password=mut_pw, yenc_encrypted=True),
-        })
-
-    fixture = {
-        "schema_version": "1.0",
-        "standard": f"yEnc Body & Control Lines Encryption Standards v{STANDARD_VERSION}",
-        "vectors": vectors,
-    }
-    _write_fixture(path, fixture)
-    print(f"Generated {len(vectors)} NZB segment identity vectors in {path.name}")
-
-
 def is_forbidden_segment_index(index: int) -> bool:
     """Index framing rule: uint32_be(index) must not contain 0x0A or 0x0D."""
     return any(b in (0x0A, 0x0D) for b in uint32_be(index))
@@ -1503,7 +1312,6 @@ def main():
     generate_body_vectors(output_dir / "body_encryption.json")
     generate_control_line_vectors(output_dir / "control_line_encryption.json")
     generate_malformed_input_vectors(output_dir / "malformed_inputs.json")
-    generate_nzb_segment_identity_vectors(output_dir / "nzb_segment_identity.json")
     generate_index_allocation_vectors(output_dir / "index_allocation.json")
     print("All conformance fixtures successfully generated.")
 

@@ -93,6 +93,20 @@ Version 1.2 (2026-10-10):
   BODY only and reject an ARTICLE response under PROVIDER_FAILOVER.
   For a file that fits in one segment the uploader chooses single-part
   or one-part multipart framing; both are conformant (Sections 4, 9).
+- Authentication boundary clarified: the AAD authenticates the raw
+  restored =ybegin name, part number, part begin offset, and segment
+  length; modifying any of those fields fails authentication. An
+  intact article carries its own valid AAD and has no cryptographic
+  freshness binding to a Message-ID, an NZB slot, or any external
+  record; receiver queue and coverage checks remain responsible for
+  segment coverage and ordering (Sections 2.1 and 7). Filenames were
+  removed from statements of fields with no cryptographic role.
+- Transport normalization clarified to match the Control Lines
+  Standard Section 6: restoration preserves the terminators it
+  receives, and transport MAY have normalized bare LF to CRLF earlier;
+  line contents, physical line count, bootstrap, CRC, AAD, and
+  authenticated plaintext remain unchanged. Restoration APIs that
+  receive raw terminators still preserve exact terminators (Section 9).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -274,22 +288,33 @@ AAD.
 
 What the AAD authenticates (and what it does not):
 
-Authenticated: the segment's plaintext content, its part number and
-byte range within the assembled file, its assembled byte count, and
-the =ybegin name value. Any substitution, replay, or repositioning of
-a segment into a different part, offset, size, or file name fails
-Poly1305 verification.
+Authenticated: the segment's plaintext content, and the raw restored
+control-line fields that define its place in the assembled file: the
+=ybegin name value, the part number, the part begin offset, and the
+segment length. Modifying any of these fields in a fetched article
+changes the AAD and fails Poly1305 verification, as does modifying
+the ciphertext.
+
+The AEAD authenticates each article against its own restored control
+lines and nothing else. An intact article carries its own valid AAD:
+replaying it unchanged, or referencing the same article from a
+different NZB slot or external listing, does not change its
+authenticated fields and therefore does not fail authentication. The
+AEAD provides no cryptographic freshness binding to a Message-ID, an
+NZB position, or any external record.
 
 Explicitly NOT authenticated (documented limitations): NNTP header
 fields (including the Subject line), Message-IDs, NZB subject text,
-XML element order, group lists, poster, and date. Adjacent-segment
-identity is authenticated positionally: a swap of two whole segments
-between positions changes the partNumber and partBegin inputs and
-fails. A receiver cannot, by cryptography alone, detect that a
-segment was silently dropped and replaced with nothing; that is
-detected by missing-article bookkeeping and repair tooling, not by
-the AEAD. The =yend CRC values are transport integrity checks over
-ciphertext and are not part of the AAD.
+XML element order, group lists, poster, and date. Ordering and
+coverage of segments within a file are likewise not authenticated:
+swapping two intact whole segments does not fail authentication,
+because each swapped article still carries its own valid restored
+fields and authenticates successfully. A receiver detects missing,
+duplicated, or out-of-order segments through its own queue and
+coverage bookkeeping (assembly of the declared byte range,
+missing-article tracking, and repair tooling), not by the AEAD; those
+receiver checks remain necessary. The =yend CRC values are transport
+integrity checks over ciphertext and are not part of the AAD.
 
 Checksum ordering: the wire CRC covers the ciphertext only and is
 verified before AEAD authentication (Section 5); the AAD participates
@@ -665,11 +690,20 @@ completes and MUST discard them on failure.
 7. Security Considerations
 
 - XChaCha20-Poly1305 provides AEAD confidentiality and authenticity.
-- The Section 2.1 associated data binds each segment to its assembly
-  position and file name: segment substitution, replay into a
-  different position, or cross-file swapping fails authentication.
-  NNTP headers, subjects, Message-IDs, and XML order remain outside
-  the AEAD and are explicitly unauthenticated (Section 2.1).
+- The Section 2.1 associated data authenticates the raw restored
+  control-line fields that place a segment in the assembled file: the
+  =ybegin name value, part number, part begin offset, and segment
+  length. Modifying any of those fields in a fetched article, or the
+  ciphertext, fails authentication. NNTP headers, subjects,
+  Message-IDs, and XML order remain outside the AEAD and are
+  explicitly unauthenticated (Section 2.1).
+- An intact article always carries its own valid AAD: the AEAD
+  provides no freshness binding to a Message-ID, an NZB slot, or any
+  external record, so replaying an intact article or substituting its
+  external reference is not detected by cryptography. Receiver queue
+  and coverage checks (missing-article bookkeeping, declared-range
+  assembly, repair tooling) remain responsible for segment coverage
+  and ordering (Section 2.1).
 - Unique nonces derived per segmentIndex guarantee nonce uniqueness across
   all segments in the upload session.
 - Argon2id with 16-byte random salts protects against brute-force and
@@ -684,8 +718,9 @@ completes and MUST discard them on failure.
   authentication; Poly1305 confirms cryptographic authenticity.
 - Decoupled CRC metadata prevents downstream integrity tools (PAR2) from
   evaluating wire ciphertext CRCs against plaintext payloads.
-- Subject lines, filenames, XML element order, and NNTP header order have
-  no cryptographic role, enabling full subject and metadata obfuscation.
+- Subject lines, XML element order, and NNTP header order have no
+  cryptographic role, enabling full subject and metadata obfuscation.
+  (The =ybegin name value is authenticated; see Section 2.1.)
 - All failure paths enforce zero output, preventing chosen-ciphertext
   or partial-plaintext leakage.
 
@@ -784,12 +819,16 @@ Decoupling of Presentation Metadata:
   lines after NNTP dot-unstuffing has been applied.
 - Line Terminators: Canonical yEnc generators emit CRLF (0x0D 0x0A).
   Decoders MUST accept both CRLF and bare LF (0x0A) transparently.
-  Terminators are preserved byte for byte during reconstruction
-  (Control Lines Standard Section 6); the reconstruction outcome MUST
-  NOT depend on anything but the terminator bytes the article carried,
-  so a transport layer that normalizes bare LF to CRLF before decoding
-  is conformant when the reconstructed block ends up byte-identical to
-  the wire content of a CRLF article and no article bytes are lost.
+  Restoration (Control Lines Standard Section 6) preserves the line
+  terminators it receives byte for byte; it MUST NOT canonicalize
+  anything by its own decision. A transport layer MAY have normalized
+  bare LF to CRLF before restoration: such normalization is conformant
+  when the reconstructed block ends up byte-identical to the wire
+  content of a CRLF article and no article bytes are lost. Restoration
+  APIs that receive raw terminators MUST preserve them exactly.
+  In all cases line contents, the physical line count, the bootstrap
+  bytes, the wire CRC, the AAD, and the authenticated plaintext MUST
+  remain unchanged.
 - Article-Bounded Memory: This wire format requires authentication before
   plaintext release, so an implementation MAY buffer one complete article.
   It MUST keep working memory proportional to the configured maximum article

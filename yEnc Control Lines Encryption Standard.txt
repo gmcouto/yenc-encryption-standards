@@ -50,7 +50,13 @@ Version 1.2 (2026-10-10):
   associated data (Body Standard Section 2.1) binds each segment to
   its assembly position and =ybegin name; control-line restoration
   supplies those values. The control-line FF1 layer itself carries no
-  associated data beyond its tweak.
+  associated data beyond its tweak. The AEAD authenticates the raw
+  restored name, part number, part begin offset, and segment length:
+  modifying any of those fields fails authentication. An intact
+  article carries its own valid AAD and has no cryptographic
+  freshness binding to a Message-ID, an NZB slot, or any external
+  record; receiver queue and coverage checks remain responsible for
+  segment coverage and ordering (Body Standard Sections 2.1 and 7).
 - Exact KDF inputs shared with the body standard: UTF-8 password
   encoding with no Unicode normalization, Argon2id version 0x13
   (v=19), time=1, memory=65536 KiB, parallelism=4, 32-byte output,
@@ -72,7 +78,12 @@ Version 1.2 (2026-10-10):
   salt bytes are sampled uniformly from it.
 - Decoding restores Line 1, then the fixed header positions inferred
   from the restored structure, then the =yend footer identified by
-  position. Line terminators are kept byte for byte.
+  position. Line terminators are kept byte for byte: restoration
+  preserves the terminators it receives, and transport MAY have
+  normalized bare LF to CRLF earlier (Body Standard Section 9). Line
+  contents, physical line count, bootstrap bytes, CRC, AAD, and
+  authenticated plaintext remain unchanged; restoration APIs that
+  receive raw terminators preserve them exactly (Section 6).
 - An article is multipart if and only if physical line 2 after =ybegin
   is =ypart; otherwise it is single-part. Multipart articles carry
   =ypart at physical line 2 and =yencryption at physical line 3.
@@ -88,6 +99,12 @@ Version 1.2 (2026-10-10):
   entry that is present with an empty value, or any other non-matching
   yenc_version or yenc_cipher value, is a METADATA_VALIDATION failure
   (Body Standard Section 8).
+- Transport normalization clarified to match the body standard
+  (Body Standard Section 9): restoration preserves the terminators it
+  receives, and transport MAY have normalized bare LF to CRLF earlier;
+  line contents, physical line count, bootstrap, CRC, AAD, and
+  authenticated plaintext remain unchanged. Restoration APIs that
+  receive raw terminators still preserve exact terminators (Section 6).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -547,10 +564,17 @@ completes and MUST discard them on failure.
   and line terminators.
 - Overall yEnc block length increases by exactly 20 bytes (the bootstrap).
 - Line endings (CRLF or LF) and data line formatting are preserved
-  throughout the process: decryption reconstructs each line with the same
-  terminator bytes it carried on the wire, so a bare-LF article is restored
-  with bare LF and a CRLF article with CRLF. Canonical producers emit CRLF,
-  but a decoder MUST NOT canonicalize bare LF to CRLF during reconstruction.
+  throughout the process: restoration preserves, byte for byte, the
+  terminators the restoration layer receives, so a bare-LF block
+  delivered to restoration is restored with bare LF and a CRLF block
+  with CRLF. The restoration layer itself MUST NOT canonicalize bare
+  LF to CRLF. A transport layer MAY have normalized bare LF to CRLF
+  before restoration (Body Standard Section 9); restoration is not
+  judged against terminators that transport already replaced. In all
+  cases line contents, the physical line count, the bootstrap bytes,
+  the wire CRC, the AAD, and the authenticated plaintext MUST remain
+  unchanged. Restoration APIs that receive raw terminators MUST
+  preserve them exactly.
 
 ----------------------------------------------------------------------
 7. Security Considerations
@@ -576,8 +600,16 @@ completes and MUST discard them on failure.
   body standard's associated data (Body Standard Section 2.1)
   provides position binding, and the restored control lines have no
   cryptographic integrity guarantee of their own.
-- Subject lines, filenames, XML element order, and NNTP header order have
-  no cryptographic role, enabling full subject and metadata obfuscation.
+- Subject lines, XML element order, and NNTP header order have no
+  cryptographic role, enabling full subject and metadata obfuscation.
+  (The =ybegin name value is authenticated by the body AEAD; see the
+  Body Standard Sections 2.1 and 7.)
+- The body AEAD authenticates an article against its own restored
+  control lines only: an intact article carries its own valid AAD and
+  has no cryptographic freshness binding to a Message-ID, an NZB
+  slot, or any external record. Receiver queue and coverage checks
+  remain responsible for segment coverage and ordering (Body Standard
+  Section 2.1).
 - The KDF password is used exactly as delivered (UTF-8, no
   normalization); implementations that alter it before derivation
   break interoperability.

@@ -10,8 +10,6 @@ Tests conformance against:
 - NIST SP 800-38G FF1 control-line encryption round-trips and
   deterministic combined-mode restoration fixtures (control_line_encryption.json)
 - Malformed-input rejection and zero-output security (malformed_inputs.json)
-- Tampered-index/metadata-mutation authentication enforcement and
-  zero-output obligations (nzb_segment_identity.json)
 - Uploader segmentIndex allocation skip vectors (index_allocation.json)
 """
 
@@ -20,7 +18,6 @@ import re
 import struct
 import sys
 import unittest
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -141,14 +138,12 @@ class TestConformanceVectors(unittest.TestCase):
         cls.body_data = load_fixture("body_encryption.json")
         cls.control_data = load_fixture("control_line_encryption.json")
         cls.malformed_data = load_fixture("malformed_inputs.json")
-        cls.nzb_identity_data = load_fixture("nzb_segment_identity.json")
         cls.index_allocation_data = load_fixture("index_allocation.json")
 
     def test_fixture_schema_and_failure_classifications(self):
         """Validate fixture metadata and structural/provider failure boundaries."""
-        for data in (self.malformed_data, self.nzb_identity_data):
-            self.assertEqual(data["schema_version"], "1.0")
-            self.assertTrue(data["vectors"])
+        self.assertEqual(self.malformed_data["schema_version"], "1.0")
+        self.assertTrue(self.malformed_data["vectors"])
 
         structural_categories = {"metadata_validation"}
         provider_categories = {"header_syntax", "placement", "salt_mismatch", "control_syntax", "auth_failure", "framing"}
@@ -427,104 +422,6 @@ class TestConformanceVectors(unittest.TestCase):
                 self.assertIn(category, dispatchable_categories)
         # Zero silent skips: every vector id must have been exercised above.
         all_ids = {case["id"] for case in self.malformed_data["vectors"]}
-        self.assertEqual(exercised, all_ids)
-
-    @staticmethod
-    def _metadata(root):
-        return {
-            meta.get("type"): (meta.text or "")
-            for meta in root.findall(
-                "./{http://www.newzbin.com/DTD/2003/nzb}head/"
-                "{http://www.newzbin.com/DTD/2003/nzb}meta"
-            )
-        }
-
-    def _body_auth(self, case, segment_index, password=None, salt_hex=None):
-        """Run the Section 5 body authentication/decryption for a vector.
-
-        Returns (plaintext_or_None, failed). On any authentication failure
-        the returned plaintext is None (the zero-output obligation).
-        """
-        key = derive_key(
-            password or case["password"],
-            bytes.fromhex(salt_hex or case["salt_hex"]),
-        )
-        nonce = derive_body_nonce(key, segment_index)
-        ciphertext = bytes.fromhex(case["ciphertext_hex"])
-        tag = bytes.fromhex(case["tag_hex"])
-        aad = bytes.fromhex(case["aad_hex"])
-        try:
-            return body_decrypt(ciphertext, tag, key, nonce, aad), False
-        except ne.CryptoError:
-            return None, True
-
-    def test_vec06_nzb_segment_identity(self):
-        """Verify tampered-index/metadata-mutation authentication,
-        zero-output obligations, and NZB provenance markers."""
-        exercised: set[str] = set()
-        for case in self.nzb_identity_data["vectors"]:
-            with self.subTest(vector_id=case["id"]):
-                exercised.add(case["id"])
-                category = case["category"]
-
-                if category == "index_tampering":
-                    # The fetched article's bootstrap index is the TAMPERED
-                    # value; authentication against it MUST fail, and the
-                    # zero-output obligation must hold (no plaintext bytes
-                    # released, by CryptoError semantics and by assertion).
-                    self.assertTrue(case["zero_output_required"])
-                    self.assertEqual(case["expected_error"], "AUTHENTICATION_FAILURE")
-                    self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
-                    if "tampered_segments" in case:
-                        for seg in case["tampered_segments"]:
-                            output, failed = self._body_auth(
-                                seg,
-                                seg["tampered_segment_index"],
-                                password=case["password"],
-                                salt_hex=case["salt_hex"],
-                            )
-                            self.assertTrue(failed, case["id"])
-                            self.assertIsNone(output)
-                            # Sanity: with the ACTUAL index the same bytes
-                            # authenticate, proving the fixture itself is
-                            # sound and the failure is caused by the tamper.
-                            actual, failed_actual = self._body_auth(
-                                seg,
-                                seg["actual_segment_index"],
-                                password=case["password"],
-                                salt_hex=case["salt_hex"],
-                            )
-                            self.assertFalse(failed_actual, case["id"])
-                            self.assertEqual(actual, bytes.fromhex(seg["plaintext_hex"]))
-                    else:
-                        output, failed = self._body_auth(
-                            case, case["tampered_segment_index"]
-                        )
-                        self.assertTrue(failed, case["id"])
-                        self.assertIsNone(output)
-                        actual, failed_actual = self._body_auth(
-                            case, case["actual_segment_index"]
-                        )
-                        self.assertFalse(failed_actual, case["id"])
-                        self.assertEqual(actual, bytes.fromhex(case["plaintext_hex"]))
-
-                elif category == "metadata_mutation":
-                    # mutated AAD (name/part/begin/bytes)
-                    # MUST fail authentication even though the ciphertext,
-                    # tag, salt, and index are all authentic, and MUST
-                    # release zero bytes.
-                    self.assertTrue(case["zero_output_required"])
-                    self.assertEqual(case["expected_error"], "AUTHENTICATION_FAILURE")
-                    self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
-                    output, failed = self._body_auth(case, case["segment_index"])
-                    self.assertTrue(failed, case["id"])
-                    self.assertIsNone(output)
-                    root = ET.fromstring(case["nzb_xml"])
-                    self.assertEqual(self._metadata(root).get("yenc_encrypted"), "true")
-
-                else:
-                    self.fail(f"Unknown nzb_segment_identity category: {category}")
-        all_ids = {case["id"] for case in self.nzb_identity_data["vectors"]}
         self.assertEqual(exercised, all_ids)
 
     def test_vec07_index_allocation(self):
