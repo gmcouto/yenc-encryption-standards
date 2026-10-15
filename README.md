@@ -147,7 +147,7 @@ Placement: Single-part line 2 (after =ybegin); multipart line 3 (after =ypart)
 CRC Handling: Wire CRC in =yend covers ciphertext; verified then cleared (crc32 = None) or recomputed over authenticated plaintext
 ```
 
-A client MUST NOT release or write unauthenticated plaintext or ciphertext to any downstream target, and it MAY buffer one article of working memory until validation completes. Working memory MUST remain O(article_size) and MUST NOT grow with a multipart file or release (Body Standard Sections 5 and 9).
+A client MUST NOT release or write unauthenticated plaintext or ciphertext to any downstream target (assembly, downstream caches, files, or observable sinks). Internal restored metadata, intermediate ciphertext, and article-sized working buffers MAY pass between internal helpers inside the validation pipeline, but unauthenticated payload MUST NOT reach downstream stages before validation completes. Working memory MUST remain O(article_size) and MUST NOT grow with a multipart file or release (Body Standard Sections 5 and 9).
 
 ## Status
 

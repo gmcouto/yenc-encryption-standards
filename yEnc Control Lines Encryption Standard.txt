@@ -105,6 +105,18 @@ Version 1.2 (2026-10-10):
   line contents, physical line count, bootstrap, CRC, AAD, and
   authenticated plaintext remain unchanged. Restoration APIs that
   receive raw terminators still preserve exact terminators (Section 6).
+- Internal validation boundary and zero-output rule clarified (Section 5):
+  internal helpers within the article validation and decryption pipeline
+  MAY exchange restored control metadata, intermediate decoded ciphertext,
+  and article-sized working buffers; unauthenticated payload bytes and
+  unvalidated article data MUST NOT be released to assembly, downstream
+  caches, target files, subsequent pipeline stages, or observable sinks.
+- Tweak uniqueness qualified (Sections 2 and 7): distinct segmentIndex
+  and lineIndex values ensure distinct HMAC-SHA256 derivation inputs,
+  yielding distinct 64-bit tweaks probabilistically (subject to birthday
+  collision bounds) rather than by guaranteed mathematical injectivity;
+  FF1 confidentiality is format- and domain-constrained by the
+  253-character Alphabet.
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -184,13 +196,14 @@ due to the bootstrap prefix prepended to the first line.
   segmentIndex:
     An unsigned 32-bit integer in the range 1..=4294967295 encoded
     in the article bootstrap (bytes 16..19 of Line 1 prefix and the
-    index parameter of =yencryption). It provides unique tweak values
-    for every segment across the upload session without file-boundary
-    arithmetic or NZB XML dependencies. With control line encryption
-    enabled, a 4-byte big-endian uint32_be(segmentIndex) containing
-    byte values 0x0A or 0x0D is forbidden because either byte would
-    inject an NNTP line delimiter into the Line 1 prefix and split the
-    bootstrap short. Uploaders MUST skip such indices, and
+    index parameter of =yencryption). It provides distinct tweak
+    derivation inputs for every segment across the upload session without
+    file-boundary arithmetic or NZB XML dependencies, yielding distinct
+    derived tweaks with high probability across the session. With control
+    line encryption enabled, a 4-byte big-endian uint32_be(segmentIndex)
+    containing byte values 0x0A or 0x0D is forbidden because either byte
+    would inject an NNTP line delimiter into the Line 1 prefix and split
+    the bootstrap short. Uploaders MUST skip such indices, and
     decoders MUST reject the article under PROVIDER_FAILOVER.
 
    lineIndex:
@@ -204,8 +217,10 @@ due to the bootstrap prefix prepended to the first line.
      unmodified data line, increments lineIndex sequentially by 1.
      The first line of the block has lineIndex = 1; the final footer
      line (=yend) has lineIndex = N.
-    Used to generate unique tweaks for FF1 encryption/decryption of
-    yEnc control lines.
+    Used with segmentIndex to supply distinct derivation inputs for FF1
+    tweaks. Because the 64-bit tweak is a truncated HMAC output, derived
+    tweaks are distinct across articles and lines with high probability
+    rather than by mathematical injectivity.
 
   yenc_encrypted Provenance:
     An explicit metadata flag in the NZB <head> section defined as
@@ -542,12 +557,21 @@ the effective password feeds the KDF unaltered.
 
 A decoder MUST NOT release or write unauthenticated plaintext or ciphertext
 to a target file, cache visible to downstream stages, or subsequent pipeline
-stage. Release means any transfer of restored control-line content or
-decrypted body bytes to another component, stream, pipe, buffer shared with
-another stage, or observable sink, not only the final file write. Partial
-release during decryption, before validation completes, is a violation of
-this rule. It MAY retain article-sized working buffers until validation
-completes and MUST discard them on failure.
+stage. Release means any transfer of unauthenticated payload bytes or
+unvalidated article data outside the validation pipeline to downstream
+components, streams, pipes, buffers shared with subsequent pipeline
+stages, or observable sinks, not only the final file write. Internal
+restored control metadata, intermediate decoded ciphertext, and
+article-sized working buffers MAY pass between internal helpers inside
+the article validation and decryption pipeline (for example, to reconstruct
+control lines, infer framing, derive Associated Data, verify wire CRC, and
+perform body authentication). What is strictly forbidden is releasing
+unauthenticated payload bytes (plaintext or ciphertext) or unvalidated
+article structure to assembly, downstream caches, files, or observable
+output before validation completes. Partial release of unauthenticated
+payload during decryption, before validation completes, is a violation of
+this rule. An implementation MAY retain article-sized working buffers
+until validation completes and MUST discard them on failure.
 
 ----------------------------------------------------------------------
 6. Length Properties
@@ -579,10 +603,19 @@ completes and MUST discard them on failure.
 ----------------------------------------------------------------------
 7. Security Considerations
 
-- FF1 provides confidentiality equivalent to AES-256 under unique
-  key/tweak pairs.
-- Unique tweaks per segmentIndex and lineIndex ensure tweak uniqueness
-  across all articles and lines.
+- FF1 provides format-preserving confidentiality constrained by its
+  domain (the 253-character Alphabet); its security builds on the
+  underlying AES-256 block cipher under key/tweak pairs that are
+  practically distinct.
+- Distinct segmentIndex and lineIndex values ensure distinct HMAC-SHA256
+  derivation inputs. Because the 64-bit tweak is a truncated HMAC-SHA256
+  output, distinct tweaks across all articles and lines are probabilistic
+  (pseudorandom) rather than mathematically guaranteed: collision
+  probability follows the birthday bound over the number of control lines
+  under one key, and is negligible at the article counts and line counts
+  typical of a single upload session. This is not an anti-replay design;
+  receiver queue and coverage checks remain responsible for freshness
+  (Body Standard Sections 2.1 and 7).
 - Argon2id with random salts provides strong protection against brute-force
   and rainbow table attacks.
 - Dual-bootstrap verification prevents salt or index substitution attacks

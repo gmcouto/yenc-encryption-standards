@@ -107,6 +107,17 @@ Version 1.2 (2026-10-10):
   line contents, physical line count, bootstrap, CRC, AAD, and
   authenticated plaintext remain unchanged. Restoration APIs that
   receive raw terminators still preserve exact terminators (Section 9).
+- Internal validation boundary and zero-output rule clarified (Section 5):
+  internal helpers within the article validation and decryption pipeline
+  MAY exchange restored control metadata, intermediate decoded ciphertext,
+  and article-sized working buffers; unauthenticated payload bytes and
+  unvalidated article data MUST NOT be released to assembly, downstream
+  caches, target files, subsequent pipeline stages, or observable sinks.
+- Nonce uniqueness qualified (Sections 2 and 7): distinct segmentIndex
+  values ensure distinct HMAC-SHA256 derivation inputs, yielding distinct
+  192-bit nonces probabilistically (subject to birthday collision bounds,
+  negligible at the allowed segment count) rather than by guaranteed
+  mathematical injectivity.
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -175,9 +186,10 @@ and transport integrity are required across Usenet distribution networks.
     An unsigned 32-bit integer in the range 1..=4294967295 carried
     in the article bootstrap. The value appears both as the
     index parameter of =yencryption and as bytes 16..19 of the Line 1
-    prefix. It provides unique nonce values for every segment across
-    the upload session without file-boundary arithmetic or NZB XML
-    dependencies.
+    prefix. It provides distinct nonce derivation inputs for every
+    segment across the upload session without file-boundary arithmetic
+    or NZB XML dependencies, yielding distinct derived nonces with
+    high probability across the session.
 
   Four-GiB File Size Bound:
     An explicit bound requiring every encrypted file to be strictly
@@ -668,12 +680,21 @@ article bytes and the rejection is provider corruption
 Zero-Output Rule:
 Decoders and download clients MUST NOT release or write unauthenticated
 plaintext or ciphertext to a target file, cache visible to downstream stages,
-or subsequent pipeline stage. Release means any transfer of those bytes to
-another component, stream, pipe, buffer shared with another stage, or
-observable sink, not only the final file write. Partial release during
-decryption, before authentication completes, is a violation of this rule.
-An implementation MAY retain article-sized working buffers until validation
-completes and MUST discard them on failure.
+or subsequent pipeline stage. Release means any transfer of unauthenticated
+payload bytes or unvalidated article data outside the validation pipeline to
+downstream components, streams, pipes, buffers shared with subsequent
+pipeline stages, or observable sinks, not only the final file write. Internal
+restored control metadata, intermediate decoded ciphertext, and
+article-sized working buffers MAY pass between internal helpers inside the
+article validation and decryption pipeline (for example, to reconstruct
+control lines, infer framing, derive Associated Data, verify wire CRC, and
+perform body authentication). What is strictly forbidden is releasing
+unauthenticated payload bytes (plaintext or ciphertext) or unvalidated
+article structure to assembly, downstream caches, files, or observable
+output before validation completes. Partial release of unauthenticated
+payload during decryption, before authentication completes, is a violation of
+this rule. An implementation MAY retain article-sized working buffers until
+validation completes and MUST discard them on failure.
 
 ----------------------------------------------------------------------
 6. Length Properties
@@ -704,8 +725,14 @@ completes and MUST discard them on failure.
   and coverage checks (missing-article bookkeeping, declared-range
   assembly, repair tooling) remain responsible for segment coverage
   and ordering (Section 2.1).
-- Unique nonces derived per segmentIndex guarantee nonce uniqueness across
-  all segments in the upload session.
+- Distinct segmentIndex values ensure distinct HMAC-SHA256 derivation
+  inputs. Because the 192-bit nonce is a truncated HMAC-SHA256 output,
+  distinct nonces across segments in the upload session are probabilistic
+  (pseudorandom) rather than mathematically guaranteed: collision
+  probability follows the birthday bound over the 192-bit space and is
+  negligible across the maximum allowed segment count (at most 2^32
+  segments). This is not an anti-replay design; receiver queue and
+  coverage checks remain responsible for freshness (Section 2.1).
 - Argon2id with 16-byte random salts protects against brute-force and
   rainbow table attacks.
 - Dual-bootstrap verification prevents salt or index substitution attacks
