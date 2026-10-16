@@ -424,7 +424,7 @@ class TestConformanceVectors(unittest.TestCase):
         all_ids = {case["id"] for case in self.malformed_data["vectors"]}
         self.assertEqual(exercised, all_ids)
 
-    def test_vec07_index_allocation(self):
+    def test_vec06_index_allocation(self):
         """Verify uploader index skip vectors: forbidden candidates are skipped,
         assigned indices never contain 0x0A/0x0D, and 269 itself is forbidden."""
         for case in self.index_allocation_data["vectors"]:

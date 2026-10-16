@@ -117,6 +117,9 @@ Version 1.2 (2026-10-10):
   collision bounds) rather than by guaranteed mathematical injectivity;
   FF1 confidentiality is format- and domain-constrained by the
   253-character Alphabet.
+- Decryption order clarified (Section 5): the complete yEnc block is
+  reconstructed with original line endings before proceeding to body
+  decryption.
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -477,14 +480,14 @@ Decryption Steps:
    d. Verify decrypted content starts with "=yend". Any other result,
       including an FF1 decryption error, is PROVIDER_FAILOVER.
    e. Replace line N encrypted content with decrypted content.
-7. Proceed to body decryption in the order required by the body standard
+7. Reconstruct the complete yEnc block with original line endings.
+8. Proceed to body decryption in the order required by the body standard
    (Body Standard Section 5): decode yEnc data lines to ciphertext, verify
    the applicable wire CRC over ciphertext (pcrc32 for multipart, crc32 for
    single-part) before authentication, then perform Poly1305 authentication
    and decryption, and finally apply downstream CRC normalization: decoders
    MUST either clear the CRC metadata
    (crc32 = None) or recompute it over authenticated plaintext.
-8. Reconstruct the complete yEnc block with original line endings.
 
 Two-Tier Error Handling:
 

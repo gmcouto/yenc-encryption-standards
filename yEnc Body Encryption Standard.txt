@@ -118,6 +118,9 @@ Version 1.2 (2026-10-10):
   192-bit nonces probabilistically (subject to birthday collision bounds,
   negligible at the allowed segment count) rather than by guaranteed
   mathematical injectivity.
+- Control-line decryption order clarified (Control Lines Standard
+  Section 5): the complete yEnc block is reconstructed with original
+  line endings before proceeding to body decryption (Section 5).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
