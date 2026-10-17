@@ -104,7 +104,8 @@ To distinguish encrypted yEnc transport from unencrypted uploads carrying archiv
 
 The two .txt standards are the normative source for all rules; the lists below are only a summary with pointers.
 
-- NZB gating: `<meta type="yenc_encrypted">true</meta>` (trimmed, ASCII case-insensitive) enables transport decryption; a password without it stays an archive password (Body Standard Section 8).
+- NZB gating: `<meta type="yenc_encrypted">true</meta>` (trimmed, ASCII case-insensitive) enables transport decryption; any other value means ordinary yEnc, and a password without it stays an archive password (Body Standard Section 8).
+- `=ybegin` keywords: yEnc keywords on the restored `=ybegin` line are the space-separated tokens before `name=`; the `name=` value is the remainder of the line after `name=`, so text inside the name (such as `part=`) is never a keyword and is part of the AAD subject (Body Standard Section 2.1, Control Lines Standard Section 3).
 - Optional `yenc_version` and `yenc_cipher` metadata: an absent entry is allowed; a present but empty or non-matching value (`1.2` exactly; `XChaCha20-Poly1305` case-insensitive, both after trimming whitespace) is a `METADATA_VALIDATION` failure (Body Standard Section 8).
 - Header placement: an article is multipart if and only if physical line 2 after `=ybegin` is `=ypart`; receivers decrypt physical line 2 first and never read `part=` from `=ybegin` to decide placement (Body Standard Sections 3-5).
 - For a file that fits in one segment, the uploader chooses single-part framing or a one-part multipart block; both are conformant (Body Standard Section 4).

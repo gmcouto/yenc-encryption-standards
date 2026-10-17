@@ -13,6 +13,8 @@ Tests conformance against:
 - Uploader segmentIndex allocation skip vectors (index_allocation.json)
 """
 
+import hashlib
+import hmac
 import json
 import re
 import struct
@@ -211,7 +213,12 @@ class TestConformanceVectors(unittest.TestCase):
             key = bytes.fromhex(case["key_hex"])
             expected_msg = b"yenc-body nonce" + struct.pack(">I", case["segment_index"])
             self.assertEqual(bytes.fromhex(case["message_hex"]), expected_msg)
+            # The fixture's full_hmac_hex is the complete 32-byte
+            # HMAC-SHA256 digest; the nonce is its first 24 bytes.
+            full_hmac = hmac.new(key, expected_msg, hashlib.sha256).digest()
+            self.assertEqual(full_hmac.hex(), case["full_hmac_hex"])
             self.assertEqual(derive_body_nonce(key, case["segment_index"]).hex(), case["expected_nonce_hex"])
+            self.assertEqual(case["expected_nonce_hex"], case["full_hmac_hex"][:48])
         for case in self.nonce_tweak_data["control_tweak_vectors"]:
             master_key = bytes.fromhex(case["master_key_hex"])
             expected_msg = b"yenc-control tweak" + struct.pack(">I", case["segment_index"]) + struct.pack(">I", case["line_index"])
@@ -219,6 +226,11 @@ class TestConformanceVectors(unittest.TestCase):
             enc_key, tweak = derive_control_keys(master_key, case["segment_index"], case["line_index"])
             self.assertEqual(enc_key.hex(), case["enc_key_hex"])
             self.assertEqual(tweak.hex(), case["expected_tweak_hex"])
+            # The fixture's full_hmac_hex is the complete 32-byte
+            # HMAC-SHA256 digest; the tweak is its first 8 bytes.
+            full_hmac = hmac.new(master_key, expected_msg, hashlib.sha256).digest()
+            self.assertEqual(full_hmac.hex(), case["full_hmac_hex"])
+            self.assertEqual(case["expected_tweak_hex"], case["full_hmac_hex"][:16])
 
     def test_vec03_body_encryption(self):
         """Verify body round-trips, canonical five-token headers, and
@@ -227,7 +239,11 @@ class TestConformanceVectors(unittest.TestCase):
             with self.subTest(vector_id=case["id"]):
                 salt = bytes.fromhex(case["salt_hex"])
                 key = derive_key(case["password"], salt)
+                # The generator-emitted derived fields must equal the
+                # locally derived key and nonce.
+                self.assertEqual(key.hex(), case["derived_key_hex"])
                 nonce = derive_body_nonce(key, case["segment_index"])
+                self.assertEqual(nonce.hex(), case["derived_nonce_hex"])
                 plaintext = bytes.fromhex(case["plaintext_hex"])
                 aad_meta = case["aad"]
                 aad = build_aad(
@@ -273,6 +289,10 @@ class TestConformanceVectors(unittest.TestCase):
                 if "plaintext_line" in case:
                     plaintext = case["plaintext_line"].encode("ascii")
                     enc_key, tweak = derive_control_keys(master_key, case["segment_index"], case["line_index"])
+                    # The generator-emitted derived fields must equal the
+                    # locally derived encKey and tweak.
+                    self.assertEqual(enc_key.hex(), case["derived_enc_key_hex"])
+                    self.assertEqual(tweak.hex(), case["derived_tweak_hex"])
                     wire = bytes.fromhex(case["expected_wire_hex"])
                     if case["is_line_1"]:
                         self.assertEqual(case["bootstrap_length"], 20)
@@ -353,14 +373,19 @@ class TestConformanceVectors(unittest.TestCase):
                             case["multipart"],
                         )
                 elif category == "framing":
-                    # Article-level framing vectors: schema assertion only (the
-                    # article bytes are not carried).
+                    # Doc-fixture check (schema-only): this branch validates
+                    # the fixture's own declared classification, not a
+                    # failure mode of production/crypto code, because the
+                    # article bytes are not carried.
                     self.assertEqual(case["expected_rejection_stage"], "PROVIDER_FAILOVER")
                     self.assertTrue(case["provider_failover_permitted"])
                     self.assertEqual(case["expected_error"], "CONTROL_LINE_DECRYPT_FAILURE")
                 elif category == "metadata_validation":
-                    # Metadata-level vectors: schema assertion only (no crypto
-                    # primitive applies; the article bytes are not carried).
+                    # Doc-fixture check (schema-only): this branch validates
+                    # the fixture's own declared classification, not a
+                    # failure mode of production/crypto code, because no
+                    # crypto primitive applies and the article bytes are
+                    # not carried.
                     self.assertEqual(case["expected_rejection_stage"], "METADATA_VALIDATION")
                     self.assertFalse(case["provider_failover_permitted"])
                     self.assertIn(case["expected_error"], metadata_tokens)

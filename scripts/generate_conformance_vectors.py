@@ -67,7 +67,7 @@ def generate_argon2id_vectors(path: Path):
         },
         {
             "id": "argon2id-03-complex-password",
-            "description": "Password with spaces and punctuation symbols",
+            "description": "Password with spaces and punctuation symbols (primitive-level KDF vector; salt not a valid wire salt)",
             "password": "P@ssw0rd with spaces & symbols!#$%",
             "salt_hex": "0102030405060708090a0b0c0d0e0f10",
         },
@@ -85,7 +85,7 @@ def generate_argon2id_vectors(path: Path):
         },
         {
             "id": "argon2id-06-long-password",
-            "description": "128-character long alphanumeric password",
+            "description": "128-character long alphanumeric password (primitive-level KDF vector; salt not a valid wire salt)",
             "password": "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
             "salt_hex": "102030405060708090a0b0c0d0e0f000",
         },
@@ -105,7 +105,7 @@ def generate_argon2id_vectors(path: Path):
         },
         {
             "id": "argon2id-08-cjk-utf8",
-            "description": "CJK password requiring 3-byte UTF-8 sequences",
+            "description": "CJK password requiring 3-byte UTF-8 sequences (primitive-level KDF vector; salt not a valid wire salt)",
             "password": "\u30d1\u30b9\u30ef\u30fc\u30c9\u6f22\u5b57",
             "salt_hex": "00112233445566778899aabbccddeeff",
         },

@@ -120,6 +120,12 @@ Version 1.2 (2026-10-10):
 - Decryption order clarified (Section 5): the complete yEnc block is
   reconstructed with original line endings before proceeding to body
   decryption.
+- =ybegin keyword boundary defined (Sections 3 and 5, mirrored in Body
+  Standard Section 2.1): yEnc keywords on the restored =ybegin line are
+  the space-separated tokens before name=, and the name= value is the
+  remainder of the line after name=; Control Section 5 step 1 states the
+  trimmed, ASCII case-insensitive "true"-only NZB gating rule of Body
+  Standard Section 8.
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -277,7 +283,10 @@ In combined mode, =yencryption is ALWAYS present:
 - Framing consistency: restored =ybegin MUST carry a part= keyword when
   physical line 2 is =ypart, and MUST NOT carry one when line 2 is
   =yencryption. A mismatch is corrupt framing and MUST fail under
-  PROVIDER_FAILOVER.
+  PROVIDER_FAILOVER. yEnc keywords on the restored =ybegin line are
+  the space-separated tokens before name=; the name= value is the
+  remainder of the line after name=, so text inside the name value
+  (for example "part=") is never a keyword.
 - The header MUST conform to the Canonical =yencryption Grammar in Section 4
   of the yEnc Body Encryption Standard. Its wire form is:
   =yencryption cipher=XChaCha20-Poly1305 salt=<32_hex_chars> index=<8_hex_chars> tag=<32_hex_chars>
@@ -390,7 +399,8 @@ Procedure (applied to each yEnc control line individually):
 Decryption Steps:
 
 1. Inspect NZB metadata: verify <meta type="yenc_encrypted">true</meta> is
-   present in the NZB <head>.
+   present in the NZB <head> (trimmed, ASCII case-insensitive; any other
+   value means ordinary yEnc — Body Standard Section 8).
 2. Split the dot-unstuffed yEnc block into individual lines, preserving
    line endings (accepting CRLF and bare LF).
 3. Process line 1 (lineIndex=1) to extract article bootstrap:
