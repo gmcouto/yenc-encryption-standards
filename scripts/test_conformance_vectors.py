@@ -31,7 +31,7 @@ for p in (str(REPO_ROOT), str(SCRIPTS_DIR)):
 import argon2.low_level as ll
 import nacl.exceptions as ne
 
-# The canonical reference primitives shared with the vector generator.
+# The reference-helper primitives shared with the vector generator.
 from yenc_enc_reference import (
     body_decrypt,
     body_encrypt,

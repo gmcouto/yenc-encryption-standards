@@ -22,7 +22,7 @@ STANDARD_VERSION = "1.2"
 # Wire CRC-32 of the single ciphertext byte 0x1c that the one-byte data line "F" encodes.
 WIRE_CRC_F = "c603b3c2"
 
-# Import the canonical reference primitives so the generator and the test
+# Import the reference-helper primitives so the generator and the test
 # harness share one exact statement of the derivations (AAD, KDF, nonces, FF1).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from yenc_enc_reference import (
@@ -422,14 +422,14 @@ def generate_control_line_vectors(path: Path):
         },
         {
             "id": "control-vec-04-line-3-yencryption",
-            "description": "Header line 3 =yencryption (exact length preservation)",
+            "description": "FF1-primitive fixture (control-line layer only; not a combined-mode-valid article: its =yencryption salt does not match the fixture Line 1 bootstrap salt, so dual-bootstrap agreement fails): Header line 3 =yencryption (exact length preservation)",
             "segment_index": 1,
             "line_index": 3,
             "plaintext_line": "=yencryption cipher=XChaCha20-Poly1305 salt=1a2b3c4d5e6f7890abcdef1234567890 index=00000001 tag=24d9229edfc04aeaeedcf105bc91e695",
         },
         {
             "id": "control-vec-05-line-4-yend-single",
-            "description": "Footer line 4 =yend minimal (exact length preservation)",
+            "description": "FF1-primitive fixture (control-line layer only; not a combined-mode-valid article: its =yend carries no applicable ciphertext CRC): Footer line 4 =yend minimal (exact length preservation)",
             "segment_index": 1,
             "line_index": 4,
             "plaintext_line": "=yend size=18",
@@ -727,11 +727,15 @@ def generate_control_line_vectors(path: Path):
         "cipher": "FF1",
         "radix": 253,
         "note": (
-            "Control-line layer only: the multi-line vectors are FF1 "
-            "line-restoration fixtures. Their data lines are opaque filler, "
-            "their =yencryption tags are not authenticated, and no consumer "
-            "can authenticate these articles end to end; body-level vectors "
-            "live in body_encryption.json."
+            "Control-line layer only: the single-line and multi-line vectors "
+            "(including control-vec-04 and control-vec-05) are FF1-primitive "
+            "fixtures. Their data lines are opaque filler, their =yencryption "
+            "tags are not authenticated, and single-line fixture contents "
+            "(such as control-vec-04's mismatched =yencryption salt or "
+            "control-vec-05's CRC-less =yend) do not by themselves satisfy "
+            "combined-mode article rules, so no consumer can authenticate "
+            "these articles end to end; body-level vectors live in "
+            "body_encryption.json."
         ),
         "vectors": vectors,
     }
@@ -1093,6 +1097,7 @@ def generate_malformed_input_vectors(path: Path):
             "id": "metadata-01-missing-provenance",
             "category": "metadata_validation",
             "description": "Encrypted article without the required transport provenance marker",
+            "context": "decryption explicitly requested",
             "expected_error": "MISSING_ENCRYPTION_PROVENANCE",
             "expected_rejection_stage": "METADATA_VALIDATION",
             "provider_failover_permitted": False,
@@ -1101,7 +1106,8 @@ def generate_malformed_input_vectors(path: Path):
         {
             "id": "metadata-02-false-provenance",
             "category": "metadata_validation",
-            "description": "Transport provenance explicitly set to false",
+            "description": "Transport provenance explicitly set to false, which does not satisfy provenance when decryption is explicitly requested (without that request, a non-true value is ordinary yEnc per Body Standard Section 8)",
+            "context": "decryption explicitly requested",
             "expected_error": "INVALID_ENCRYPTION_PROVENANCE",
             "expected_rejection_stage": "METADATA_VALIDATION",
             "provider_failover_permitted": False,

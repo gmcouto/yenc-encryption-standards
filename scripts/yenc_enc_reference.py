@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Reference implementation helpers for the yEnc encryption standards v1.2.
 
-This module is the canonical executable statement of the derivations that
-implementations must reproduce:
+This module is a reference helper for the derivations that implementations
+must reproduce (the two .txt standards remain the only normative source):
 
 - Argon2id key derivation with the exact v1.2 KDF inputs (UTF-8 password
   encoding with no normalization, v=0x13, t=1, m=65536 KiB, p=4, 32-byte

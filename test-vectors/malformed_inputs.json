@@ -421,6 +421,7 @@
       "id": "metadata-01-missing-provenance",
       "category": "metadata_validation",
       "description": "Encrypted article without the required transport provenance marker",
+      "context": "decryption explicitly requested",
       "expected_error": "MISSING_ENCRYPTION_PROVENANCE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "provider_failover_permitted": false,
@@ -429,7 +430,8 @@
     {
       "id": "metadata-02-false-provenance",
       "category": "metadata_validation",
-      "description": "Transport provenance explicitly set to false",
+      "description": "Transport provenance explicitly set to false, which does not satisfy provenance when decryption is explicitly requested (without that request, a non-true value is ordinary yEnc per Body Standard Section 8)",
+      "context": "decryption explicitly requested",
       "expected_error": "INVALID_ENCRYPTION_PROVENANCE",
       "expected_rejection_stage": "METADATA_VALIDATION",
       "provider_failover_permitted": false,

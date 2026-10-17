@@ -126,6 +126,13 @@ Version 1.2 (2026-10-10):
   remainder of the line after name=; Control Section 5 step 1 states the
   trimmed, ASCII case-insensitive "true"-only NZB gating rule of Body
   Standard Section 8.
+- Footer position and size-bound fields defined operatively: N is
+  the index of the last non-empty physical line (trailing empty lines
+  ignored before footer counting; Sections 2 and 5), Body Standard
+  Section 4 carries the salt-uniformity / no-modulo-253 sentence of
+  Section 4, and the >= 2^32 receiver check enumerates the =ypart
+  begin, =ypart end, and =ybegin size= fields (Body Standard
+  Section 2.1, cited from Section 5 step 4e).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -219,8 +226,10 @@ due to the bootstrap prefix prepended to the first line.
      A 32-bit unsigned integer (1 <= lineIndex <= N) representing the
      1-based physical line number of every line (header, data, or
      footer) within the yEnc block after NNTP dot-unstuffing, where N
-     is the 1-based line index of the =yend footer line. Trailing
-     blank lines after the footer are outside the yEnc block and are
+     is the 1-based line index of the last non-empty physical line of
+     the dot-unstuffed article body; that line is the =yend footer
+     line. Trailing empty lines after the footer are ignored before
+     footer line counting: they are outside the yEnc block and are
      excluded from lineIndex accounting.
      Every line in the block, whether an encrypted control line or an
      unmodified data line, increments lineIndex sequentially by 1.
@@ -392,9 +401,11 @@ Procedure (applied to each yEnc control line individually):
 5. Decryption and Error Handling
 
    Input: yEnc block with encrypted control lines and the transport
-   password. N is the 1-based line index of the =yend footer line;
-   trailing blank lines after the footer are outside the yEnc block and
-   are excluded from lineIndex accounting.
+   password. N is the 1-based line index of the last non-empty physical
+   line of the dot-unstuffed article body; that line is the =yend
+   footer line. Trailing empty lines after the footer are ignored
+   before footer line counting: they are outside the yEnc block and are
+   excluded from lineIndex accounting.
 
 Decryption Steps:
 
@@ -456,8 +467,10 @@ Decryption Steps:
       Line 1 segmentIndex value-for-value. An FF1 decryption error, a
       grammar violation, a placement disagreement, or a dual-bootstrap
       mismatch is PROVIDER_FAILOVER.
-   e. Bounded file size check: if restored begin or size values are
-      >= 2^32 bytes, reject under PROVIDER_FAILOVER (token SIZE_OVERFLOW).
+   e. Bounded file size check: if any of the fields enumerated in
+      Body Standard Section 2.1 (the =ypart begin parameter, the
+      =ypart end parameter, or the =ybegin size= parameter) is
+      >= 2^32, reject under PROVIDER_FAILOVER (token SIZE_OVERFLOW).
    f. Every physical line between the last expected header position
       and the footer position N (that is, lineIndex D through N - 1)
       is a data line: it MUST be passed through completely untouched,
@@ -467,8 +480,9 @@ Decryption Steps:
       happen to begin with "=y" remains a data line; genuine control
       lines are recognizable by position alone.
    g. The footer is identified deterministically by position:
-      the last physical line of the yEnc block (lineIndex = N) is the
-      =yend footer. No content-based footer search is performed.
+      the last non-empty physical line of the dot-unstuffed article
+      body (lineIndex = N) is the =yend footer. No content-based
+      footer search is performed.
    h. Out of scope for v1.2: control-only articles (control line
       encryption without body encryption), articles with custom
       control lines other than =ybegin, =ypart, =yencryption, and
@@ -484,7 +498,7 @@ Decryption Steps:
    - Leave all data lines untouched, incrementing lineIndex for each 1-based
      physical line.
 6. Process the final line (footer, lineIndex = N):
-   a. Extract the last physical line content (excluding line terminators).
+   a. Extract the content of line N (excluding line terminators).
    b. Derive tweak using extracted salt, extracted segmentIndex, and lineIndex = N.
    c. Apply FF1 decryption over the 253-character Alphabet.
    d. Verify decrypted content starts with "=yend". Any other result,
@@ -797,7 +811,7 @@ Decryption Processing:
 - Line 3 (lineIndex=3):
   * First data line (D = 3); passes through untouched to body decryption.
 - Line 4 (lineIndex=4 = N):
-  * Identified as footer by position (last physical line).
+  * Identified as footer by position (last non-empty physical line).
   * Decrypt with lineIndex=4 tweak.
   * Restores: "=yend size=16 crc32=b3185887".
 

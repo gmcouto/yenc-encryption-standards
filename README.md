@@ -160,9 +160,10 @@ Both specifications are experimental v1.2 wire contracts; v1.2 is pre-release an
 
 The repository provides automated validation and reference implementations under `scripts/`:
 
-- `yenc_enc_reference.py`: Canonical reference implementation of cryptographic derivations (Argon2id KDF, HMAC-SHA256 nonces and tweaks, NIST SP 800-38G FF1 with Radix 253 Alphabet, and XChaCha20-Poly1305 AEAD).
+- `yenc_enc_reference.py`: Reference helper for cryptographic derivations (Argon2id KDF, HMAC-SHA256 nonces and tweaks, NIST SP 800-38G FF1 with Radix 253 Alphabet, and XChaCha20-Poly1305 AEAD); the two .txt standards remain the only normative source.
 - `generate_conformance_vectors.py`: Deterministic test vector generator producing JSON fixtures with cryptographic inputs, wire lines, and expected outcomes.
 - `test_conformance_vectors.py`: Automated test harness exercising all generated test vector fixtures and validating failure-mode enforcement.
+- `test_standards_v1.py`: Behavioural specification checks recomputing the Section 10 examples and cross-document constants, including admitted exact-substring checks on version, KDF parameter spellings, and the wire form.
 
 Run tests using pytest or direct invocation:
 ```bash

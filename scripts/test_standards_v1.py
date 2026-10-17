@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Behavioural specification checks for yEnc encryption standards v1.2.
 
-Not a prose lock: this suite deliberately avoids asserting normative
-wording. It checks only what can fail independently of editorial rewording:
+This suite checks what can fail independently of editorial rewording,
+plus a deliberate, admitted set of exact-substring checks (see
+test_constants_agree_between_standards: it asserts exact substrings such
+as "Version: 1.2", KDF parameter spellings, and the literal wire form, so
+editorial rewording of those strings will fail here by design):
 
 - The three specification files exist and are non-empty.
 - Constants agree between the two .txt standards (KDF parameters,
-  versions, wire grammar).
+  versions, wire grammar), including the admitted exact-substring checks
+  described above.
 - Section cross-references between the documents resolve to real sections.
 - Every hexadecimal value printed in the Section 10 examples of both
-  standards is recomputed from the reference implementation.
+  standards is recomputed from the reference helper.
 """
 
 import re
@@ -54,7 +58,12 @@ class TestStandardsV1(unittest.TestCase):
         self.assertGreater(len(self.readme), 0, "README file is empty")
 
     def test_constants_agree_between_standards(self):
-        """KDF parameters, versions, and the wire grammar agree in both .txt files."""
+        """KDF parameters, versions, and the wire grammar agree in both .txt files.
+
+        Admitted exact-substring checks: this test intentionally asserts
+        exact substrings (version, KDF parameter spellings, wire form), so
+        rewording those strings fails here by design rather than silently.
+        """
         for spec in (self.body_spec, self.control_spec):
             self.assertIn("Version: 1.2", spec)
             self.assertIn("Argon2id", spec)
@@ -87,7 +96,7 @@ class TestStandardsV1(unittest.TestCase):
             self.assertIn(match, control_sections, f"Body standard cites missing Control section {match}")
 
     def test_section_10_examples_match_reference(self):
-        """Recompute every hex value printed in the Body and Control Section 10 examples."""
+        """Recompute every hex value printed in the Body and Control Section 10 examples (via the reference helper)."""
         plaintext = bytes.fromhex("48656C6C6F20576F726C642E747874FF")
         salt = bytes.fromhex("1a2b3c4d5e6f7890abcdef1234567890")
         key = derive_key("test123", salt)

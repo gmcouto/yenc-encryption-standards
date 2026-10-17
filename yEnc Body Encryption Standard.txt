@@ -125,6 +125,14 @@ Version 1.2 (2026-10-10):
   Control Lines Standard Section 3): yEnc keywords on the restored
   =ybegin line are the space-separated tokens before name=, and the
   name= value is the remainder of the line after name=.
+- Footer position and size-bound fields defined operatively: N is
+  the index of the last non-empty physical line (trailing empty lines
+  ignored before footer counting; Control Lines Standard Sections 2
+  and 5), Body Section 4 carries the salt-uniformity / no-modulo-253
+  sentence of Control Lines Standard Section 4, and the >= 2^32
+  receiver check enumerates the =ypart begin, =ypart end, and
+  =ybegin size= fields (Section 2.1, cited from Control Lines
+  Standard Section 5 step 4e).
 
 Version 0.3 (2025-10-26):
 - Changed salt generation from deterministic SHA-256 to random values
@@ -152,6 +160,10 @@ yEnc encoding while maintaining:
 
 It is intended for use in binary file uploads where payload confidentiality
 and transport integrity are required across Usenet distribution networks.
+
+Version 1.2 defines combined mode only (control line encryption and body
+encryption together); other framing modes are reserved for future standards
+(see Section 3).
 
 ----------------------------------------------------------------------
 2. Definitions
@@ -290,7 +302,9 @@ Serialization rules:
   fields beyond the widths above.
 - Encrypted files MUST be smaller than 2^32 bytes (four-GiB bound).
   Producers MUST refuse files of 2^32 bytes or larger. Receivers MUST
-  treat begin or size values >= 2^32 as PROVIDER_FAILOVER.
+  treat any of the following field values >= 2^32 as
+  PROVIDER_FAILOVER: the =ypart begin parameter, the =ypart end
+  parameter, and the =ybegin size= parameter.
 - The AAD MUST NOT include the authentication tag, the ciphertext,
   the salt, the segmentIndex, the wire CRC, or any other field: the
   tag and ciphertext are the protected AEAD inputs themselves, the
@@ -396,12 +410,15 @@ Algorithm: XChaCha20-Poly1305 (RFC 8439 Extended)
 Parameters:
   - Cipher: XChaCha20 (256-bit key, 192-bit nonce)
   - Authentication: Poly1305 (128-bit tag)
-  - Salt: 16-byte random value drawn from the control standard's
-    253-byte Alphabet (generated via cryptographically secure RNG):
-    every salt byte MUST differ from 0x00, 0x0A, and 0x0D so that the
-    byte-for-byte dual-bootstrap equality is satisfied. A producer
-    that samples a forbidden byte for the salt cannot satisfy both
-    standards and MUST resample.
+  - Salt: 16-byte random value sampled uniformly from the control
+    standard's 253-byte Alphabet (generated via cryptographically
+    secure RNG): every salt byte MUST differ from 0x00, 0x0A, and 0x0D
+    so that the byte-for-byte dual-bootstrap equality is satisfied. A
+    producer that samples a forbidden byte for the salt cannot satisfy
+    both standards and MUST resample. Reducing a full byte range
+    modulo 253 without rejection produces a non-uniform salt and MUST
+    NOT be used; rejection sampling, which re-draws any forbidden
+    value, remains uniform and is permitted.
   - File Size: Encrypted files MUST be strictly smaller than 2^32 bytes
     (four-GiB bound). Producers MUST refuse larger files.
   - Key derivation: Argon2id(password, salt, time=1, memory=64MB,
@@ -455,9 +472,12 @@ Parameters:
 
 Procedure:
 
-  a. Generate salt = Random 16-byte value drawn from the 253-byte
-     Alphabet (no 0x00, 0x0A, 0x0D; once per upload session, use
-     cryptographically secure RNG).
+  a. Generate salt = Random 16-byte value sampled uniformly from the
+     253-byte Alphabet (no 0x00, 0x0A, 0x0D; once per upload session, use
+     cryptographically secure RNG; use rejection sampling, drawing again
+     on any byte outside Alphabet — reducing a full byte range modulo
+     253 without rejection produces a non-uniform salt and MUST NOT be
+     used).
   b. Derive key = Argon2id(password encoded to UTF-8 with no
      normalization, salt, time=1, memory=65536 KiB, parallelism=4,
      32-byte output, version 0x13, empty optional secret and
@@ -586,8 +606,10 @@ Decryption Processing:
 6. Derive key and nonce using password, salt, and segmentIndex (uint32_be).
 7. Compute the Associated Data (AAD) exactly per Section 2.1 from the
    restored control-line values (partNumber, partBegin, segmentBytes,
-   name). If begin or size is >= 2^32, fail closed under
-   PROVIDER_FAILOVER. Then authenticate and decrypt ciphertext using
+   name). If any field enumerated in Section 2.1 (the =ypart begin
+   parameter, the =ypart end parameter, or the =ybegin size=
+   parameter) is >= 2^32, fail closed under PROVIDER_FAILOVER.
+   Then authenticate and decrypt ciphertext using
    XChaCha20-Poly1305 with that AAD. If authentication fails, no CRC
    result observed in step 5 changes the outcome: the article fails as
    provider corruption.
@@ -643,7 +665,7 @@ with no alteration.
 
 Combined-only interoperability: Version 1.2 defines combined mode only
 (control line encryption and body encryption together); other framing
-modes are reserved for future standards (Section 1). v1.2 producers MUST
+modes are reserved for future standards (Sections 1 and 3). v1.2 producers MUST
 emit combined mode only; producers MUST NOT emit body-only or
 control-only articles. v1.2 receivers MUST support combined mode and
 MUST reject articles in other modes under PROVIDER_FAILOVER. The NZB
